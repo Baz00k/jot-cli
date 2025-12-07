@@ -1,0 +1,21 @@
+{
+  "name": "jot-cli",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "@openrouter/ai-sdk-provider": "^1.4.1",
+    "@total-typescript/tsconfig": "^1.0.4",
+    "ai": "^5.0.108",
+    "commander": "^14.0.2",
+    "dotenv": "^17.2.3",
+    "zod": "^4.1.13"
+  }
+}
