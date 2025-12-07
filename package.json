@@ -1,8 +1,9 @@
 {
     "name": "jot-cli",
+    "version": "0.0.1",
     "module": "src/index.ts",
     "bin": {
-        "jot": "dist/index.js"
+        "jot": "src/index.ts"
     },
     "files": [
         "dist"
@@ -14,7 +15,6 @@
         "compile:macos": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-macos --target=bun-darwin-arm64"
     },
     "type": "module",
-    "private": true,
     "devDependencies": {
         "@types/bun": "latest"
     },
