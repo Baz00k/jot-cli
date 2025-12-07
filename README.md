@@ -2,45 +2,47 @@
 
 A CLI-based AI agent designed to assist in writing research papers. It gathers context from your project, drafts content, reviews it for academic rigor, and refines it.
 
-## Setup
+## Installation
 
-1.  **Install dependencies**:
+### For Development
+
+1.  **Clone the repository**:
+
+    ```bash
+    git clone https://github.com/Baz00k/jot-cli.git
+    cd jot-cli
+    ```
+
+2.  **Install dependencies**:
 
     ```bash
     bun install
     ```
 
-2.  **Configure Environment**:
-    Copy `.env.example` to `.env` and add your OpenRouter API key.
+3.  **Configure OpenRouter API Key**:
+
+    Set your OpenRouter API key using the config command:
+
     ```bash
-    cp .env.example .env
+    bun run src/index.ts config set-key YOUR_API_KEY
     ```
-    Edit `.env`:
-    ```env
-    OPENROUTER_API_KEY=sk-or-your-key
-    ```
+
+    Get your API key from https://openrouter.ai/
+
+### For End Users
+
+In the future the tool should be available to install via package managers like npm or brew.
+Currently, the only installation method is to download the appropriate binary for your platform
+from the releases page and add it to your PATH.
 
 ## Usage
 
-Run the CLI using Bun:
-
 ```bash
-bun run src/index.ts write
+jot write "Draft a conclusion for the paper summarizing the key findings on LLM reasoning."
 ```
-
-Or pass a prompt directly:
-
-```bash
-bun run src/index.ts write "Draft a conclusion for the paper summarizing the key findings on LLM reasoning."
-```
-
-### Options
-
-- `-w, --writer <model>`: Specify the drafting model (default: `moonshotai/kimi-k2-thinking`).
-- `-r, --reviewer <model>`: Specify the reviewer model (default: `google/gemini-3-pro-preview`).
 
 ## Features
 
 - **Context Awareness**: Reads your project files to understand style and structure.
 - **Draft-Review-Refine Loop**: Ensures high-quality academic output.
-- **Safe File Operations**: Checks specifically for project boundaries before reading/writing.
+- **Cross-Platform Configuration**: Works seamlessly on Windows, macOS, and Linux.
