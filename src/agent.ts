@@ -2,7 +2,8 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText, type LanguageModel } from "ai";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { safePath, tools } from "./tools";
+import { getApiKeySetupMessage } from "./config.js";
+import { safePath, tools } from "./tools.js";
 
 export interface AgentOptions {
     prompt: string;
@@ -19,12 +20,9 @@ export class ResearchAgent {
     private onProgress?: (message: string) => void;
 
     constructor(options: AgentOptions) {
-        const apiKey = options.openRouterApiKey || process.env.OPENROUTER_API_KEY;
+        const apiKey = options.openRouterApiKey;
         if (!apiKey) {
-            throw new Error(
-                "OPENROUTER_API_KEY is required. Set it in .env or pass it as an option.\n" +
-                    "Get your API key from https://openrouter.ai/",
-            );
+            throw new Error(getApiKeySetupMessage());
         }
 
         const openrouter = createOpenRouter({
@@ -101,8 +99,8 @@ Do NOT include any responses that are not directly related to the task at hand.
         } catch (error: any) {
             if (error.message?.includes("API key")) {
                 throw new Error(
-                    "API authentication failed. Please check your OPENROUTER_API_KEY in .env file.\n" +
-                        "Get your API key from https://openrouter.ai/",
+                    "API authentication failed. Please verify your OpenRouter API key is correct.\n" +
+                        getApiKeySetupMessage(),
                 );
             }
             throw error;

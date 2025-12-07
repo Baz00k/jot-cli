@@ -1,13 +1,53 @@
 #!/usr/bin/env bun
 import { cancel, confirm, intro, isCancel, note, outro, spinner, text } from "@clack/prompts";
 import { Command } from "commander";
-import "dotenv/config";
 import * as path from "path";
-import { ResearchAgent } from "./agent";
+import { ResearchAgent } from "./agent.js";
+import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "./config.js";
 
 const program = new Command();
 
 program.name("jot").description("AI Research Assistant CLI").version("0.0.1");
+
+const configCommand = program.command("config").description("Manage jot-cli configuration");
+
+configCommand
+    .command("set-key")
+    .description("Set your OpenRouter API key")
+    .argument("<api-key>", "Your OpenRouter API key")
+    .action(async (apiKey) => {
+        intro(`🔑 Jot CLI - Configuration`);
+
+        try {
+            await setOpenRouterApiKey(apiKey);
+            outro(`API key saved successfully at: ${getConfigLocation()}`);
+        } catch (error: any) {
+            outro(`Failed to save API key: ${error.message}`);
+            process.exit(1);
+        }
+    });
+
+configCommand
+    .command("show-path")
+    .description("Show the configuration file location")
+    .action(() => {
+        console.log(getConfigLocation());
+    });
+
+configCommand
+    .command("status")
+    .description("Check if API key is configured")
+    .action(async () => {
+        const apiKey = await getOpenRouterApiKey();
+        if (apiKey) {
+            console.log("✓ API key is configured");
+            console.log(`Config location: ${getConfigLocation()}`);
+        } else {
+            console.log("✗ API key is not configured");
+            console.log("");
+            console.log(getApiKeySetupMessage());
+        }
+    });
 
 program
     .command("write")
@@ -17,6 +57,13 @@ program
     .option("-r, --reviewer <model>", "Model for reviewing", "google/gemini-3-pro-preview")
     .action(async (promptArg, options) => {
         intro(`📝 Jot CLI - AI Research Assistant`);
+
+        // Check for API key first
+        const apiKey = await getOpenRouterApiKey();
+        if (!apiKey) {
+            outro(getApiKeySetupMessage());
+            process.exit(1);
+        }
 
         let userPrompt = promptArg;
 
@@ -44,6 +91,7 @@ program
                 prompt: userPrompt,
                 modelWriter: options.writer,
                 modelReviewer: options.reviewer,
+                openRouterApiKey: apiKey,
                 onProgress: (message) => s.message(message),
             });
 
