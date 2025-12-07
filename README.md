@@ -5,6 +5,7 @@ A CLI-based AI agent designed to assist in writing research papers. It gathers c
 ## Setup
 
 1.  **Install dependencies**:
+
     ```bash
     bun install
     ```
@@ -35,11 +36,11 @@ bun run src/index.ts write "Draft a conclusion for the paper summarizing the key
 
 ### Options
 
--   `--writer <model>`: Specify the drafting model (default: `anthropic/claude-3.5-sonnet`).
--   `--reviewer <model>`: Specify the reviewer model (default: `openai/gpt-4o`).
+- `-w, --writer <model>`: Specify the drafting model (default: `moonshotai/kimi-k2-thinking`).
+- `-r, --reviewer <model>`: Specify the reviewer model (default: `google/gemini-3-pro-preview`).
 
 ## Features
 
--   **Context Awareness**: Reads your project files to understand style and structure.
--   **Draft-Review-Refine Loop**: Ensures high-quality academic output.
--   **Safe File Operations**: Checks specifically for project boundaries before reading/writing.
+- **Context Awareness**: Reads your project files to understand style and structure.
+- **Draft-Review-Refine Loop**: Ensures high-quality academic output.
+- **Safe File Operations**: Checks specifically for project boundaries before reading/writing.
