@@ -44,10 +44,10 @@ program
                 prompt: userPrompt,
                 modelWriter: options.writer,
                 modelReviewer: options.reviewer,
+                onProgress: (message) => s.message(message),
             });
 
             // Run the agent loop
-            s.message("Drafting content (this may take a moment to read files)...");
             const result = await agent.run();
 
             s.stop("Drafting complete!");
@@ -90,24 +90,14 @@ program
 
                 s.start("Saving file...");
 
-                // If append, we read first
                 let contentToWrite = result.finalContent;
                 if (appendOrOverwrite) {
+                    const fs = await import("fs/promises");
                     try {
-                        const existing = await agent.executeWrite(filePath as string, ""); // Hack to check if we can write? No, better use fs directly or tool.
-                        // Actually, let's just use the tool. But the tool overwrites.
-                        // So we read manually.
-                        // We can't easily use the tool for append without reading first.
-                        // Let's rely on standard fs for this part in the CLI to be safe and explicit.
-                        const fs = await import("fs/promises");
-                        try {
-                            const current = await fs.readFile(path.resolve(filePath as string), "utf-8");
-                            contentToWrite = current + "\n\n" + result.finalContent;
-                        } catch (e) {
-                            // File doesn't exist, just write
-                        }
+                        const current = await fs.readFile(path.resolve(filePath as string), "utf-8");
+                        contentToWrite = current + "\n\n" + result.finalContent;
                     } catch (e) {
-                        // ignore
+                        // File doesn't exist, just write new content
                     }
                 }
 
