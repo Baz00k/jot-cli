@@ -1,21 +1,33 @@
 {
-  "name": "jot-cli",
-  "module": "src/index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "@clack/prompts": "^0.11.0",
-    "@openrouter/ai-sdk-provider": "^1.4.1",
-    "@total-typescript/tsconfig": "^1.0.4",
-    "ai": "^5.0.108",
-    "commander": "^14.0.2",
-    "dotenv": "^17.2.3",
-    "zod": "^4.1.13"
-  }
+    "name": "jot-cli",
+    "module": "src/index.ts",
+    "bin": {
+        "jot": "dist/index.js"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "compile": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot",
+        "compile:linux": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-linux --target=bun-linux-x64",
+        "compile:windows": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-windows --target=bun-windows-x64",
+        "compile:macos": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-macos --target=bun-darwin-arm64"
+    },
+    "type": "module",
+    "private": true,
+    "devDependencies": {
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {
+        "@clack/prompts": "^0.11.0",
+        "@openrouter/ai-sdk-provider": "^1.4.1",
+        "@total-typescript/tsconfig": "^1.0.4",
+        "ai": "^5.0.108",
+        "commander": "^14.0.2",
+        "dotenv": "^17.2.3",
+        "zod": "^4.1.13"
+    }
 }
