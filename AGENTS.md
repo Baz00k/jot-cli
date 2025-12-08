@@ -46,6 +46,7 @@
 ### Testing
 
 - When running tests, use `AGENT=1 bun test` for clearer test output
+- Only write tests for critical functionality
 - Use `bun test` with built-in test framework
 - Test files should end with `.test.ts`
 - Use `test()` and `expect()` from "bun:test"
@@ -54,4 +55,4 @@
 
 - Use JSDoc comments for function parameters and return types
 - Use Markdown for documentation formatting
-- Do not update README.md or similar files unless specifically requested
+- Do not create or update README.md or similar files unless specifically requested
