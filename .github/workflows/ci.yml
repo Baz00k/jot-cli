@@ -29,3 +29,6 @@ jobs:
 
             - name: Run Biome
               run: biome ci .
+
+            - name: Run tests
+              run: bun test
