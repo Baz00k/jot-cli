@@ -1,15 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { z } from "zod";
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "./constants";
 
 const ConfigSchema = z.object({
     openRouterApiKey: z.string().optional(),
 });
 
 type Config = z.infer<typeof ConfigSchema>;
-
-const CONFIG_DIR_NAME = "jot-cli";
-const CONFIG_FILE_NAME = "config.json";
 
 function getConfigDir(): string {
     const platform = process.platform;

@@ -118,8 +118,8 @@ program
 
             s.stop(formatWindow(currentWindowContent));
 
-            note(result.draft.slice(0, 500) + "...", "Initial Draft (Snippet)");
-            note(result.review.slice(0, 500) + "...", "Reviewer Feedback (Snippet)");
+            note(`${result.draft.slice(0, 500)}...`, "Initial Draft (Snippet)");
+            note(`${result.review.slice(0, 500)}...`, "Reviewer Feedback (Snippet)");
             note(result.finalContent, "Final Refined Content");
 
             const shouldSave = await confirm({
@@ -134,7 +134,7 @@ program
             if (shouldSave) {
                 const filePath = await text({
                     message: "Enter the file path to save to:",
-                    placeholder: "sections/introduction.tex",
+                    placeholder: "sections/thesis.md",
                     validate(value) {
                         if (value.length === 0) return "Path is required!";
                     },
@@ -160,7 +160,7 @@ program
                 if (appendOrOverwrite) {
                     try {
                         const current = await fs.readFile(path.resolve(filePath as string), "utf-8");
-                        contentToWrite = current + "\n\n" + result.finalContent;
+                        contentToWrite = `${current}\n\n${result.finalContent}`;
                     } catch (e) {
                         // File doesn't exist, just write new content
                     }

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, streamText } from "ai";
 import { getApiKeySetupMessage } from "./config.js";
+import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "./constants.js";
 import { safePath, tools } from "./tools.js";
 
 export interface AgentOptions {
@@ -31,8 +32,8 @@ export class ResearchAgent {
             apiKey,
         });
 
-        this.writerModel = openrouter(options.modelWriter || "moonshotai/kimi-k2-thinking");
-        this.reviewerModel = openrouter(options.modelReviewer || "google/gemini-3-pro-preview");
+        this.writerModel = openrouter(options.modelWriter ?? DEFAULT_MODEL_WRITER);
+        this.reviewerModel = openrouter(options.modelReviewer ?? DEFAULT_MODEL_REVIEWER);
         this.prompt = options.prompt;
         this.onProgress = options.onProgress;
         this.onStream = options.onStream;

@@ -1,9 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { type ToolCallOptions, tool } from "ai";
+import { tool } from "ai";
 import { Glob } from "bun";
 import ignore from "ignore";
 import { z } from "zod";
+import { EXCERPT_SIZE_KB, MAX_FULL_FILE_SIZE_KB, MAX_LIST_FILE_SIZE_KB } from "./constants";
 
 export const safePath = (p: string) => {
     const resolved = path.resolve(p);
@@ -59,7 +60,7 @@ function shouldIgnorePath(
     // Check gitignore if available
     if (ig) {
         const normalizedPath = relativePath.replace(/\/+$/, "");
-        const pathToCheck = isDirectory ? normalizedPath + "/" : normalizedPath;
+        const pathToCheck = isDirectory ? `${normalizedPath}/` : normalizedPath;
         if (ig.ignores(pathToCheck)) return true;
     }
 
@@ -72,7 +73,7 @@ export const listFilesTool = tool({
     inputSchema: z.object({
         dirPath: z.string().optional().describe('The directory path to list (relative to cwd). Defaults to "."'),
     }),
-    execute: async ({ dirPath }: { dirPath?: string }, options: ToolCallOptions) => {
+    execute: async ({ dirPath }: { dirPath?: string }) => {
         const targetDir = safePath(dirPath || ".");
         const entries = await fs.readdir(targetDir, { withFileTypes: true });
 
@@ -99,18 +100,15 @@ export const readFileTool = tool({
     inputSchema: z.object({
         filePath: z.string().describe("The relative path to the file to read"),
     }),
-    execute: async ({ filePath }: { filePath: string }, options: ToolCallOptions) => {
+    execute: async ({ filePath }: { filePath: string }) => {
         const targetPath = safePath(filePath);
         const stats = await fs.stat(targetPath);
         const content = await fs.readFile(targetPath, "utf-8");
 
-        const MAX_SIZE = 100 * 1024; // 100KB
-        const EXCERPT_SIZE = 40 * 1024; // 40KB for beginning and end each
-
-        if (stats.size > MAX_SIZE) {
+        if (stats.size > MAX_FULL_FILE_SIZE_KB) {
             // Create an excerpt with beginning and end
-            const beginning = content.slice(0, EXCERPT_SIZE);
-            const end = content.slice(-EXCERPT_SIZE);
+            const beginning = content.slice(0, EXCERPT_SIZE_KB);
+            const end = content.slice(-EXCERPT_SIZE_KB);
 
             return `${beginning}\n\n(...)\n\n${end}\n\nOnly parts of the file were included for brevity.`;
         }
@@ -125,7 +123,7 @@ export const writeFileTool = tool({
         filePath: z.string().describe("The relative path to the file to write"),
         content: z.string().describe("The full content to write to the file"),
     }),
-    execute: async ({ filePath, content }: { filePath: string; content: string }, options: ToolCallOptions) => {
+    execute: async ({ filePath, content }: { filePath: string; content: string }) => {
         const targetPath = safePath(filePath);
         await fs.mkdir(path.dirname(targetPath), { recursive: true });
         await fs.writeFile(targetPath, content, "utf-8");
@@ -142,7 +140,7 @@ export const searchFilesTool = tool({
         caseSensitive: z.boolean().optional().default(false).describe("Whether the search should be case-sensitive"),
         maxResults: z.number().optional().default(50).describe("Maximum number of results to return"),
     }),
-    execute: async ({ pattern, filePattern, caseSensitive = false, maxResults = 50 }, options: ToolCallOptions) => {
+    execute: async ({ pattern, filePattern, caseSensitive = false, maxResults = 50 }) => {
         const cwd = process.cwd();
         const isGit = await isGitRepo(cwd);
         const ig = isGit ? await loadGitignore(cwd) : null;
@@ -188,8 +186,7 @@ export const searchFilesTool = tool({
 
             try {
                 const stats = await fs.stat(fullPath);
-                // Skip large files (> 1MB)
-                if (stats.size > 1024 * 1024) continue;
+                if (stats.size > MAX_LIST_FILE_SIZE_KB) continue;
 
                 const content = await fs.readFile(fullPath, "utf-8");
                 const lines = content.split("\n");
