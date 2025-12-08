@@ -1,5 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, type LanguageModel } from "ai";
+import { generateText, stepCountIs, type LanguageModel } from "ai";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { getApiKeySetupMessage } from "./config.js";
@@ -66,6 +66,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             const draftResponse = await generateText({
                 model: this.writerModel,
                 tools: tools,
+                stopWhen: stepCountIs(10),
                 system: systemPrompt,
                 prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
             });
@@ -77,7 +78,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             const reviewResponse = await generateText({
                 model: this.reviewerModel,
                 system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to LaTeX/formatting standards if applicable. Be constructive but rigorous.",
-                prompt: `Draft to review:\n\n${draft}`,
+                prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
             });
 
             const review = reviewResponse.text;
@@ -87,7 +88,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             const refineResponse = await generateText({
                 model: this.writerModel,
                 system: systemPrompt,
-                prompt: `Original Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
+                prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
             });
 
             const finalContent = refineResponse.text;
