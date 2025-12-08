@@ -1,9 +1,10 @@
 name: Release
 
 on:
-    push:
-        branches:
-            - master
+  workflow_run:
+    workflows: ["CI"]
+    branches: [master]
+    types: [completed]
 
 permissions:
     contents: write
@@ -12,6 +13,7 @@ permissions:
 jobs:
     release-please:
         runs-on: ubuntu-latest
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
         steps:
             - uses: googleapis/release-please-action@v4
               id: release
@@ -32,10 +34,6 @@ jobs:
             - name: Install dependencies
               if: "${{ steps.release.outputs.release_created }}"
               run: bun install
-
-            - name: Run tests
-              if: "${{ steps.release.outputs.release_created }}"
-              run: bun test
 
             - name: Build binaries
               if: "${{ steps.release.outputs.release_created }}"
