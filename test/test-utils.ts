@@ -17,7 +17,7 @@ export async function createTempDir(prefix: string = "jot-cli-test-"): Promise<s
 export async function cleanupDir(dirPath: string): Promise<void> {
     try {
         await fs.rm(dirPath, { recursive: true, force: true });
-    } catch (error) {
+    } catch (_error) {
         // Ignore cleanup errors
     }
 }
@@ -80,7 +80,7 @@ export async function readFileStructure(baseDir: string): Promise<Record<string,
  * @param data - Configuration data to write
  * @returns Path to the created config file
  */
-export async function createTestConfig(configDir: string, data: any): Promise<string> {
+export async function createTestConfig(configDir: string, data: unknown): Promise<string> {
     await fs.mkdir(configDir, { recursive: true });
     const configPath = path.join(configDir, "config.json");
     await fs.writeFile(configPath, JSON.stringify(data, null, 2), "utf-8");

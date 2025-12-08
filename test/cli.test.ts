@@ -41,7 +41,7 @@ describe("CLI Integration", () => {
 
         try {
             await fs.rm(testConfigDir, { recursive: true, force: true });
-        } catch (error) {
+        } catch (_error) {
             // Ignore cleanup errors
         }
     });

@@ -70,7 +70,7 @@ You have access to the file system.
 
 Do NOT include any responses that are not directly related to the task at hand.
 `;
-        } catch (e) {
+        } catch (_error) {
             return "You are an expert academic research assistant.";
         }
     }
@@ -123,8 +123,8 @@ Do NOT include any responses that are not directly related to the task at hand.
                 review,
                 finalContent,
             };
-        } catch (error: any) {
-            if (error.message?.includes("API key")) {
+        } catch (error) {
+            if (error instanceof Error && error.message?.includes("API key")) {
                 throw new Error(
                     "API authentication failed. Please verify your OpenRouter API key is correct.\n" +
                         getApiKeySetupMessage(),

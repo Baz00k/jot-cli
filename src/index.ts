@@ -24,8 +24,12 @@ configCommand
         try {
             await setOpenRouterApiKey(apiKey);
             outro(`API key saved successfully at: ${getConfigLocation()}`);
-        } catch (error: any) {
-            outro(`Failed to save API key: ${error.message}`);
+        } catch (error) {
+            if (error instanceof Error) {
+                outro(`Failed to save API key: ${error.message}`);
+            } else {
+                outro(`Failed to save API key: ${error}`);
+            }
             process.exit(1);
         }
     });
@@ -175,7 +179,7 @@ program
                     try {
                         const current = await fs.readFile(path.resolve(filePath as string), "utf-8");
                         contentToWrite = `${current}\n\n${result.finalContent}`;
-                    } catch (e) {
+                    } catch (_error) {
                         // File doesn't exist, just write new content
                     }
                 }
@@ -183,7 +187,7 @@ program
                 await agent.executeWrite(filePath as string, contentToWrite);
                 s.stop("File saved successfully!");
             }
-        } catch (error: any) {
+        } catch (error) {
             s.stop("An error occurred");
             console.error(error);
         }

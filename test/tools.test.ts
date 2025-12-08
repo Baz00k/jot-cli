@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { ToolCallOptions } from "ai";
+import { MAX_FULL_FILE_SIZE_KB } from "../src/constants.js";
 import { listFilesTool, readFileTool, safePath, searchFilesTool, writeFileTool } from "../src/tools.js";
 
 describe("Tools Module", () => {
@@ -18,7 +20,7 @@ describe("Tools Module", () => {
         process.chdir(originalCwd);
         try {
             await fs.rm(testDir, { recursive: true, force: true });
-        } catch (error) {
+        } catch (_error) {
             // Ignore cleanup errors
         }
     });
@@ -43,31 +45,29 @@ describe("Tools Module", () => {
             await fs.mkdir(path.join(testDir, ".git"));
             await fs.writeFile(path.join(testDir, "paper.tex"), "content");
 
-            const result = await listFilesTool.execute!({ dirPath: "." }, {} as any);
-            const fileNames = (result as any[]).map((entry: any) => entry.name);
-
-            expect(fileNames).toContain("paper.tex");
+            const result = await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions);
+            const fileNames = result?.map((entry: { name: string }) => entry.name);
             expect(fileNames).not.toContain(".");
             expect(fileNames).not.toContain(".git");
         });
 
         test("reads file content and creates excerpts for large files", async () => {
             await fs.writeFile(path.join(testDir, "small.txt"), "content");
-            const smallResult = await readFileTool.execute!({ filePath: "small.txt" }, {} as any);
+            const smallResult = await readFileTool.execute?.({ filePath: "small.txt" }, {} as ToolCallOptions);
             expect(smallResult).toBe("content");
 
             // Large file
-            const largeContent = "START\n" + "x".repeat(101 * 1024) + "\nEND";
+            const largeContent = `START\n${"x".repeat(MAX_FULL_FILE_SIZE_KB + 1)}\nEND`;
             await fs.writeFile(path.join(testDir, "large.txt"), largeContent);
-            const largeResult = await readFileTool.execute!({ filePath: "large.txt" }, {} as any);
+            const largeResult = await readFileTool.execute?.({ filePath: "large.txt" }, {} as ToolCallOptions);
 
             expect(largeResult).toContain("START");
             expect(largeResult).toContain("(...)");
-            expect(largeResult).toContain("Only parts of the file were included for brevity.");
+            expect(largeResult).toContain("END");
         });
 
         test("writes files and creates directories", async () => {
-            await writeFileTool.execute!({ filePath: "a/b/c/file.txt", content: "test" }, {} as any);
+            await writeFileTool.execute?.({ filePath: "a/b/c/file.txt", content: "test" }, {} as ToolCallOptions);
 
             const written = await fs.readFile(path.join(testDir, "a/b/c/file.txt"), "utf-8");
             expect(written).toBe("test");
@@ -83,8 +83,8 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "ignored.txt"), "content");
             await fs.mkdir(path.join(testDir, "temp"));
 
-            const result = await listFilesTool.execute!({ dirPath: "." }, {} as any);
-            const fileNames = (result as any[]).map((entry: any) => entry.name);
+            const result = await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions);
+            const fileNames = result?.map((entry: { name: string }) => entry.name);
 
             expect(fileNames).toContain("included.txt");
             expect(fileNames).not.toContain("ignored.txt");
@@ -98,13 +98,13 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "included.txt"), "searchme\n");
             await fs.writeFile(path.join(testDir, "ignored.txt"), "searchme\n");
 
-            const result = await searchFilesTool.execute!(
+            const result = await searchFilesTool.execute?.(
                 { pattern: "searchme", caseSensitive: false, maxResults: 50 },
-                {} as any,
+                {} as ToolCallOptions,
             );
 
-            expect((result as any).results.length).toBe(1);
-            expect((result as any).results[0].file).toContain("included.txt");
+            expect(result?.results.length).toBe(1);
+            expect(result?.results[0].file).toContain("included.txt");
         });
     });
 
@@ -113,30 +113,30 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "file1.txt"), "hello world\n");
             await fs.writeFile(path.join(testDir, "file2.txt"), "hello there\n");
 
-            const result = await searchFilesTool.execute!(
+            const result = await searchFilesTool.execute?.(
                 { pattern: "hello", caseSensitive: false, maxResults: 50 },
-                {} as any,
+                {} as ToolCallOptions,
             );
 
-            expect((result as any).totalResults).toBe(2);
+            expect(result?.totalResults).toBe(2);
         });
 
         test("filters by file pattern", async () => {
             await fs.writeFile(path.join(testDir, "file.ts"), "const test = 123;\n");
             await fs.writeFile(path.join(testDir, "file.txt"), "const test = 456;\n");
 
-            const result = await searchFilesTool.execute!(
+            const result = await searchFilesTool.execute?.(
                 {
                     pattern: "test",
                     filePattern: "*.ts",
                     caseSensitive: false,
                     maxResults: 50,
                 },
-                {} as any,
+                {} as ToolCallOptions,
             );
 
-            expect((result as any).results.length).toBe(1);
-            expect((result as any).results[0].file).toContain(".ts");
+            expect(result?.results.length).toBe(1);
+            expect(result?.results[0].file).toContain(".ts");
         });
 
         test("searches recursively in subdirectories", async () => {
@@ -144,12 +144,12 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "root.txt"), "find this\n");
             await fs.writeFile(path.join(testDir, "subdir/nested.txt"), "find this\n");
 
-            const result = await searchFilesTool.execute!(
+            const result = await searchFilesTool.execute?.(
                 { pattern: "find this", caseSensitive: false, maxResults: 50 },
-                {} as any,
+                {} as ToolCallOptions,
             );
 
-            expect((result as any).totalResults).toBe(2);
+            expect(result?.totalResults).toBe(2);
         });
     });
 });

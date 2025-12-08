@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { ToolCallOptions } from "ai";
 import { listFilesTool, searchFilesTool } from "../src/tools.js";
 
 describe("Integration Tests", () => {
@@ -18,7 +19,7 @@ describe("Integration Tests", () => {
         process.chdir(originalCwd);
         try {
             await fs.rm(testDir, { recursive: true, force: true });
-        } catch (error) {
+        } catch (_error) {
             // Ignore cleanup errors
         }
     });
@@ -52,8 +53,8 @@ dist/
         await fs.writeFile(path.join(testDir, ".env"), "API_KEY=secret\n");
 
         // Test list_files respects gitignore
-        const listResult = await listFilesTool.execute!({ dirPath: "." }, {} as any);
-        const listedNames = (listResult as any[]).map((e: any) => e.name);
+        const listResult = await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions);
+        const listedNames = listResult?.map((e) => e.name);
 
         expect(listedNames).toContain("src");
         expect(listedNames).toContain("README.md");
@@ -63,12 +64,12 @@ dist/
         expect(listedNames).not.toContain(".env");
 
         // Test search_files respects gitignore
-        const searchResult = await searchFilesTool.execute!(
+        const searchResult = await searchFilesTool.execute?.(
             { pattern: "API", caseSensitive: true, maxResults: 50 },
-            {} as any,
+            {} as ToolCallOptions,
         );
 
-        const searchedFiles = (searchResult as any).results.map((r: any) => r.file);
+        const searchedFiles = searchResult?.results.map((r: { file: string }) => r.file);
 
         expect(searchedFiles.some((f: string) => f.includes("index.ts"))).toBe(true);
         expect(searchedFiles.some((f: string) => f.includes("README.md"))).toBe(true);

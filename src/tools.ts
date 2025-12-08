@@ -202,7 +202,9 @@ export const searchFilesTool = tool({
                         });
                     }
                 }
-            } catch (err) {}
+            } catch (_error) {
+                // Ignore errors
+            }
         }
 
         return {
