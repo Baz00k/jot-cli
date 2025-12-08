@@ -1,6 +1,6 @@
-import * as fs from "fs/promises";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 
 /**
  * Creates a temporary directory for testing and returns its path.
@@ -34,10 +34,7 @@ export async function cleanupDir(dirPath: string): Promise<void> {
  *   "subdir/file2.md": "content2",
  * });
  */
-export async function createFileStructure(
-    baseDir: string,
-    structure: Record<string, string>,
-): Promise<void> {
+export async function createFileStructure(baseDir: string, structure: Record<string, string>): Promise<void> {
     for (const [filePath, content] of Object.entries(structure)) {
         const fullPath = path.join(baseDir, filePath);
         const dir = path.dirname(fullPath);
@@ -184,7 +181,9 @@ export function createMockProgress(): {
     return {
         callback: (message: string) => messages.push(message),
         messages,
-        clear: () => (messages.length = 0),
+        clear: () => {
+            messages.length = 0;
+        },
     };
 }
 
