@@ -1,5 +1,6 @@
 export const DEFAULT_MODEL_WRITER = "moonshotai/kimi-k2-thinking";
 export const DEFAULT_MODEL_REVIEWER = "google/gemini-3-pro-preview";
+export const MAX_STEP_COUNT = 10;
 
 export const CONFIG_DIR_NAME = "jot-cli";
 export const CONFIG_FILE_NAME = "config.json";

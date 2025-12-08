@@ -1,9 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { type LanguageModel, streamText } from "ai";
+import { type LanguageModel, stepCountIs, streamText } from "ai";
 import { getApiKeySetupMessage } from "./config.js";
-import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "./constants.js";
+import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "./constants.js";
 import { safePath, tools } from "./tools.js";
 
 export interface AgentOptions {
@@ -60,7 +60,7 @@ Do NOT include any responses that are not directly related to the task at hand.
         }
     }
 
-    private async runStep(params: any) {
+    private async runStep(params: Parameters<typeof streamText>[0]) {
         const result = streamText(params);
 
         for await (const chunk of result.textStream) {
@@ -80,7 +80,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             const draft = await this.runStep({
                 model: this.writerModel,
                 tools: tools,
-                maxSteps: 10,
+                stopWhen: stepCountIs(MAX_STEP_COUNT),
                 system: systemPrompt,
                 prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
             });
