@@ -1,8 +1,8 @@
-import { tool, type ToolCallOptions } from "ai";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { type ToolCallOptions, tool } from "ai";
 import { Glob } from "bun";
-import * as fs from "fs/promises";
 import ignore from "ignore";
-import * as path from "path";
 import { z } from "zod";
 
 export const safePath = (p: string) => {
@@ -148,7 +148,12 @@ export const searchFilesTool = tool({
         const ig = isGit ? await loadGitignore(cwd) : null;
 
         const regex = new RegExp(pattern, caseSensitive ? "g" : "gi");
-        const results: Array<{ file: string; line: number; content: string; matches: number }> = [];
+        const results: Array<{
+            file: string;
+            line: number;
+            content: string;
+            matches: number;
+        }> = [];
 
         // Convert simple patterns like "*.ts" to recursive patterns like "**/*.ts"
         // This ensures patterns match files in all subdirectories, not just the root
@@ -200,10 +205,7 @@ export const searchFilesTool = tool({
                         });
                     }
                 }
-            } catch (err) {
-                // Skip files that can't be read as text
-                continue;
-            }
+            } catch (err) {}
         }
 
         return {
