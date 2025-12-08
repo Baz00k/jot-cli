@@ -2,42 +2,54 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  release:
-    name: Build and Release
+  release-please:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - uses: google-github-actions/release-please-action@v4
+        id: release
+        with:
+          release-type: node
+
+      # The following steps only run if a new release was created
+      - name: Checkout
+        if: "${{ steps.release.outputs.release_created }}"
         uses: actions/checkout@v4
 
       - name: Setup Bun
+        if: "${{ steps.release.outputs.release_created }}"
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
+        if: "${{ steps.release.outputs.release_created }}"
         run: bun install
 
       - name: Run tests
+        if: "${{ steps.release.outputs.release_created }}"
         run: bun test
 
       - name: Build binaries
+        if: "${{ steps.release.outputs.release_created }}"
         run: |
           bun run compile:linux
           bun run compile:windows
           bun run compile:macos
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            bin/jot-linux
-            bin/jot-windows*
+      - name: Upload Release Artifacts
+        if: "${{ steps.release.outputs.release_created }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ steps.release.outputs.tag_name }} \
+            bin/jot-linux \
+            bin/jot-windows* \
             bin/jot-macos
-          generate_release_notes: true
