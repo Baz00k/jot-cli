@@ -126,7 +126,12 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "file.txt"), "const test = 456;\n");
 
             const result = await searchFilesTool.execute!(
-                { pattern: "test", filePattern: "*.ts", caseSensitive: false, maxResults: 50 },
+                {
+                    pattern: "test",
+                    filePattern: "*.ts",
+                    caseSensitive: false,
+                    maxResults: 50,
+                },
                 {} as any,
             );
 
