@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
-import { cancel, confirm, intro, isCancel, note, outro, spinner, text } from "@clack/prompts";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { cancel, confirm, intro, isCancel, log, note, outro, spinner, text } from "@clack/prompts";
 import { Command } from "commander";
-import * as path from "path";
 import { ResearchAgent } from "./agent.js";
 import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "./config.js";
+import { formatWindow } from "./text-utils.js";
 
 const program = new Command();
 
@@ -84,7 +86,9 @@ program
         }
 
         const s = spinner();
-        s.start("Initializing agent and gathering context...");
+        s.start("Initializing agent...");
+
+        let currentWindowContent = "";
 
         try {
             const agent = new ResearchAgent({
@@ -92,13 +96,27 @@ program
                 modelWriter: options.writer,
                 modelReviewer: options.reviewer,
                 openRouterApiKey: apiKey,
-                onProgress: (message) => s.message(message),
+                onProgress: (message) => {
+                    // Stop the previous step's spinner with its final window content
+                    const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
+                    s.stop(stopMsg);
+
+                    // Print the new step title
+                    log.step(message);
+
+                    // Reset and start new spinner for the window
+                    currentWindowContent = "";
+                    s.start("...");
+                },
+                onStream: (chunk) => {
+                    currentWindowContent += chunk;
+                    s.message(formatWindow(currentWindowContent));
+                },
             });
 
-            // Run the agent loop
             const result = await agent.run();
 
-            s.stop("Drafting complete!");
+            s.stop(formatWindow(currentWindowContent));
 
             note(result.draft.slice(0, 500) + "...", "Initial Draft (Snippet)");
             note(result.review.slice(0, 500) + "...", "Reviewer Feedback (Snippet)");
@@ -140,7 +158,6 @@ program
 
                 let contentToWrite = result.finalContent;
                 if (appendOrOverwrite) {
-                    const fs = await import("fs/promises");
                     try {
                         const current = await fs.readFile(path.resolve(filePath as string), "utf-8");
                         contentToWrite = current + "\n\n" + result.finalContent;

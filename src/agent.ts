@@ -1,7 +1,7 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, stepCountIs, type LanguageModel } from "ai";
-import * as fs from "fs/promises";
-import * as path from "path";
+import { type LanguageModel, streamText } from "ai";
 import { getApiKeySetupMessage } from "./config.js";
 import { safePath, tools } from "./tools.js";
 
@@ -11,6 +11,7 @@ export interface AgentOptions {
     modelReviewer?: string;
     openRouterApiKey?: string;
     onProgress?: (message: string) => void;
+    onStream?: (chunk: string) => void;
 }
 
 export class ResearchAgent {
@@ -18,6 +19,7 @@ export class ResearchAgent {
     private reviewerModel: LanguageModel;
     private prompt: string;
     private onProgress?: (message: string) => void;
+    private onStream?: (chunk: string) => void;
 
     constructor(options: AgentOptions) {
         const apiKey = options.openRouterApiKey;
@@ -33,6 +35,7 @@ export class ResearchAgent {
         this.reviewerModel = openrouter(options.modelReviewer || "google/gemini-3-pro-preview");
         this.prompt = options.prompt;
         this.onProgress = options.onProgress;
+        this.onStream = options.onStream;
     }
 
     private async getSystemPrompt() {
@@ -56,6 +59,16 @@ Do NOT include any responses that are not directly related to the task at hand.
         }
     }
 
+    private async runStep(params: any) {
+        const result = streamText(params);
+
+        for await (const chunk of result.textStream) {
+            this.onStream?.(chunk);
+        }
+
+        return await result.text;
+    }
+
     async run() {
         const systemPrompt = await this.getSystemPrompt();
 
@@ -63,35 +76,31 @@ Do NOT include any responses that are not directly related to the task at hand.
             // Step 1: Draft with Context Gathering (Tools enabled)
             // We allow multiple steps so it can read files before answering.
             this.onProgress?.("Drafting content and gathering context...");
-            const draftResponse = await generateText({
+            const draft = await this.runStep({
                 model: this.writerModel,
                 tools: tools,
-                stopWhen: stepCountIs(10),
+                maxSteps: 10,
                 system: systemPrompt,
                 prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
             });
 
-            const draft = draftResponse.text;
             this.onProgress?.("Draft complete. Reviewing content...");
 
             // Step 2: Review
-            const reviewResponse = await generateText({
+            const review = await this.runStep({
                 model: this.reviewerModel,
-                system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to LaTeX/formatting standards if applicable. Be constructive but rigorous.",
+                system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to formatting standards if applicable. Be constructive but rigorous.",
                 prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
             });
 
-            const review = reviewResponse.text;
             this.onProgress?.("Review complete. Refining content...");
 
             // Step 3: Refine (without tools to prevent accidental file modifications)
-            const refineResponse = await generateText({
+            const finalContent = await this.runStep({
                 model: this.writerModel,
                 system: systemPrompt,
                 prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
             });
-
-            const finalContent = refineResponse.text;
 
             return {
                 draft,
