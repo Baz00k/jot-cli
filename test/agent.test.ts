@@ -10,7 +10,7 @@ describe("ResearchAgent", () => {
 
     beforeEach(async () => {
         originalCwd = process.cwd();
-        testDir = await fs.mkdtemp(path.join(os.tmpdir(), "jot-cli-agent-test-"));
+        testDir = await fs.mkdtemp(path.join(os.tmpdir(), "jot-agent-test-"));
         process.chdir(testDir);
     });
 
@@ -70,6 +70,6 @@ describe("ResearchAgent", () => {
             openRouterApiKey: "test-key",
         });
 
-        expect(agent.executeWrite("../outside.txt", "bad")).rejects.toThrow(/Access denied/i);
+        expect(agent.executeWrite("../outside.txt", "content")).rejects.toThrow(/Access denied/i);
     });
 });

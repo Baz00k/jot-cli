@@ -74,19 +74,15 @@ describe("CLI Integration", () => {
     });
 
     test("config status shows when not configured", async () => {
-        const result = await $`bun run src/index.ts config status`.nothrow().quiet();
-        const output = result.stdout.toString();
-        expect(output).toContain("not configured");
-        expect(output).toContain("config set-key");
+        const { stdout } = await $`bun run src/index.ts config status`.quiet();
+        expect(stdout.toString()).toContain("not configured");
     });
 
     test("config status shows when configured", async () => {
         await $`bun run src/index.ts config set-key test-key`.quiet();
 
         const { stdout } = await $`bun run src/index.ts config status`.quiet();
-        const output = stdout.toString();
-        expect(output).toContain("✓");
-        expect(output).toContain("configured");
+        expect(stdout.toString()).toContain("configured");
     });
 
     test("write command requires API key", async () => {

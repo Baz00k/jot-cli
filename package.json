@@ -27,6 +27,7 @@
         "@total-typescript/tsconfig": "^1.0.4",
         "ai": "^5.0.108",
         "commander": "^14.0.2",
+        "ignore": "^7.0.5",
         "zod": "^4.1.13"
     }
 }

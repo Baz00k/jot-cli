@@ -43,10 +43,11 @@ Global Rules:
 ${rules}
 
 You have access to the file system.
-1. FIRST, explore the directory to understand the project structure and context using 'list_files' and 'read_file'.
-2. Understand the existing writing style, bibliography, and formatting.
-3. Then, perform the task requested by the user.
-4. If asked to write content, draft it based on the gathered context.
+1. FIRST, explore the directory to understand the project structure and context using 'list_files', 'read_file', and 'search_files'.
+2. Use 'search_files' to find specific content patterns across the project when needed.
+3. Understand the existing writing style, bibliography, and formatting.
+4. Then, perform the task requested by the user.
+5. If asked to write content, draft it based on the gathered context.
 
 Do NOT include any responses that are not directly related to the task at hand.
 `;
