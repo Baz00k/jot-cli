@@ -5,7 +5,7 @@ import { cancel, confirm, intro, isCancel, log, note, outro, spinner, text } fro
 import { Command } from "commander";
 import { ResearchAgent } from "./agent.js";
 import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "./config.js";
-import { formatWindow } from "./text-utils.js";
+import { fitToTerminalWidth, formatWindow } from "./text-utils.js";
 
 const program = new Command();
 
@@ -118,9 +118,9 @@ program
 
             s.stop(formatWindow(currentWindowContent));
 
-            note(`${result.draft.slice(0, 500)}...`, "Initial Draft (Snippet)");
-            note(`${result.review.slice(0, 500)}...`, "Reviewer Feedback (Snippet)");
-            note(result.finalContent, "Final Refined Content");
+            note(fitToTerminalWidth(`${result.draft.slice(0, 500)}...`), "Initial Draft (Snippet)");
+            note(fitToTerminalWidth(`${result.review.slice(0, 500)}...`), "Reviewer Feedback (Snippet)");
+            note(fitToTerminalWidth(result.finalContent), "Final Refined Content");
 
             const shouldSave = await confirm({
                 message: "Do you want to save this content to a file?",
