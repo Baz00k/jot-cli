@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import * as fs from "fs/promises";
-import * as os from "os";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { ResearchAgent } from "../src/agent.js";
 
 describe("ResearchAgent", () => {
@@ -35,6 +35,16 @@ describe("ResearchAgent", () => {
             openRouterApiKey: "test-key",
             modelWriter: "custom/writer",
             modelReviewer: "custom/reviewer",
+        });
+
+        expect(agent).toBeDefined();
+    });
+
+    test("creates instance with reasoning option", () => {
+        const agent = new ResearchAgent({
+            prompt: "Test prompt",
+            openRouterApiKey: "test-key",
+            reasoning: false,
         });
 
         expect(agent).toBeDefined();

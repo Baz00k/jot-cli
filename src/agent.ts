@@ -2,15 +2,20 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
+import { z } from "zod";
 import { getApiKeySetupMessage } from "./config.js";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "./constants.js";
 import { safePath, tools } from "./tools.js";
+
+export const reasoningOptions = z.enum(["low", "medium", "high"]);
 
 export interface AgentOptions {
     prompt: string;
     modelWriter?: string;
     modelReviewer?: string;
     openRouterApiKey?: string;
+    reasoning?: boolean;
+    reasoningEffort?: z.infer<typeof reasoningOptions>;
     onProgress?: (message: string) => void;
     onStream?: (chunk: string) => void;
 }
@@ -32,8 +37,18 @@ export class ResearchAgent {
             apiKey,
         });
 
-        this.writerModel = openrouter(options.modelWriter ?? DEFAULT_MODEL_WRITER);
-        this.reviewerModel = openrouter(options.modelReviewer ?? DEFAULT_MODEL_REVIEWER);
+        this.writerModel = openrouter(options.modelWriter ?? DEFAULT_MODEL_WRITER, {
+            reasoning: {
+                effort: options.reasoningEffort ?? "high",
+                enabled: options.reasoning,
+            },
+        });
+        this.reviewerModel = openrouter(options.modelReviewer ?? DEFAULT_MODEL_REVIEWER, {
+            reasoning: {
+                effort: options.reasoningEffort ?? "high",
+                enabled: options.reasoning,
+            },
+        });
         this.prompt = options.prompt;
         this.onProgress = options.onProgress;
         this.onStream = options.onStream;

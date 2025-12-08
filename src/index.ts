@@ -3,8 +3,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { cancel, confirm, intro, isCancel, log, note, outro, spinner, text } from "@clack/prompts";
 import { Command } from "commander";
-import { ResearchAgent } from "./agent.js";
+import { ResearchAgent, reasoningOptions } from "./agent.js";
 import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "./config.js";
+import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "./constants.js";
 import { fitToTerminalWidth, formatWindow } from "./text-utils.js";
 
 const program = new Command();
@@ -55,8 +56,20 @@ program
     .command("write")
     .description("Draft and insert research content")
     .argument("[prompt]", "The writing instruction")
-    .option("-w, --writer <model>", "Model for drafting", "moonshotai/kimi-k2-thinking")
-    .option("-r, --reviewer <model>", "Model for reviewing", "google/gemini-3-pro-preview")
+    .option("-w, --writer <model>", "Model for drafting", DEFAULT_MODEL_WRITER)
+    .option("-r, --reviewer <model>", "Model for reviewing", DEFAULT_MODEL_REVIEWER)
+    .option("--no-reasoning", "Disable reasoning for thinking models")
+    .option(
+        "--reasoning-effort <effort>",
+        "Effort level for reasoning (low, medium, high)",
+        (val) => {
+            if (reasoningOptions.parse(val)) {
+                return val;
+            }
+            throw new Error(`Invalid reasoning effort: ${val}`);
+        },
+        "high",
+    )
     .action(async (promptArg, options) => {
         intro(`📝 Jot CLI - AI Research Assistant`);
 
@@ -96,6 +109,7 @@ program
                 modelWriter: options.writer,
                 modelReviewer: options.reviewer,
                 openRouterApiKey: apiKey,
+                reasoning: options.reasoning,
                 onProgress: (message) => {
                     // Stop the previous step's spinner with its final window content
                     const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
