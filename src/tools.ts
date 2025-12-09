@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { tool } from "ai";
 import { Glob } from "bun";
+import { Schema } from "effect";
 import ignore from "ignore";
-import { z } from "zod";
 import { EXCERPT_SIZE_KB, MAX_FULL_FILE_SIZE_KB, MAX_LIST_FILE_SIZE_KB } from "./constants";
 
 export const safePath = (p: string) => {
@@ -70,8 +70,10 @@ function shouldIgnorePath(
 export const listFilesTool = tool({
     description:
         "List files in a directory to understand project structure. Automatically respects .gitignore if in a git repository.",
-    inputSchema: z.object({
-        dirPath: z.string().optional().describe('The directory path to list (relative to cwd). Defaults to "."'),
+    parameters: Schema.Struct({
+        dirPath: Schema.optional(Schema.String).annotations({
+            description: 'The directory path to list (relative to cwd). Defaults to "."',
+        }),
     }),
     execute: async ({ dirPath }: { dirPath?: string }) => {
         const targetDir = safePath(dirPath || ".");
@@ -97,8 +99,8 @@ export const listFilesTool = tool({
 export const readFileTool = tool({
     description:
         "Read the content of a file (e.g., .md, .tex, .bib, .txt). For large files, returns an excerpt with beginning and end.",
-    inputSchema: z.object({
-        filePath: z.string().describe("The relative path to the file to read"),
+    parameters: Schema.Struct({
+        filePath: Schema.String.annotations({ description: "The relative path to the file to read" }),
     }),
     execute: async ({ filePath }: { filePath: string }) => {
         const targetPath = safePath(filePath);
@@ -119,9 +121,9 @@ export const readFileTool = tool({
 
 export const writeFileTool = tool({
     description: "Write or overwrite content to a file. USE WITH CAUTION.",
-    inputSchema: z.object({
-        filePath: z.string().describe("The relative path to the file to write"),
-        content: z.string().describe("The full content to write to the file"),
+    parameters: Schema.Struct({
+        filePath: Schema.String.annotations({ description: "The relative path to the file to write" }),
+        content: Schema.String.annotations({ description: "The full content to write to the file" }),
     }),
     execute: async ({ filePath, content }: { filePath: string; content: string }) => {
         const targetPath = safePath(filePath);
@@ -134,11 +136,17 @@ export const writeFileTool = tool({
 export const searchFilesTool = tool({
     description:
         "Search for files by content using pattern matching (like ripgrep). Automatically respects .gitignore if in a git repository.",
-    inputSchema: z.object({
-        pattern: z.string().describe("The regex pattern to search for in file contents"),
-        filePattern: z.string().optional().describe("Optional glob pattern to filter files (e.g., '*.ts', '*.md')"),
-        caseSensitive: z.boolean().optional().default(false).describe("Whether the search should be case-sensitive"),
-        maxResults: z.number().optional().default(50).describe("Maximum number of results to return"),
+    parameters: Schema.Struct({
+        pattern: Schema.String.annotations({ description: "The regex pattern to search for in file contents" }),
+        filePattern: Schema.optional(Schema.String).annotations({
+            description: "Optional glob pattern to filter files (e.g., '*.ts', '*.md')",
+        }),
+        caseSensitive: Schema.optional(Schema.Boolean)
+            .annotations({ description: "Whether the search should be case-sensitive" })
+            .pipe(Schema.withConstructorDefault(() => false)),
+        maxResults: Schema.optional(Schema.Number)
+            .annotations({ description: "Maximum number of results to return" })
+            .pipe(Schema.withConstructorDefault(() => 50)),
     }),
     execute: async ({ pattern, filePattern, caseSensitive = false, maxResults = 50 }) => {
         const cwd = process.cwd();

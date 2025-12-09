@@ -1,13 +1,13 @@
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { type LanguageModel, stepCountIs, streamText } from "ai";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { z } from "zod";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { type LanguageModel, stepCountIs, streamText } from "ai";
+import { Effect, Schedule, Schema } from "effect";
 import { getApiKeySetupMessage } from "./config.js";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "./constants.js";
 import { safePath, tools } from "./tools.js";
 
-export const reasoningOptions = z.enum(["low", "medium", "high"]);
+export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
 export interface AgentOptions {
     prompt: string;
@@ -15,7 +15,7 @@ export interface AgentOptions {
     modelReviewer?: string;
     openRouterApiKey?: string;
     reasoning?: boolean;
-    reasoningEffort?: z.infer<typeof reasoningOptions>;
+    reasoningEffort?: Schema.Schema.Type<typeof reasoningOptions>;
     onProgress?: (message: string) => void;
     onStream?: (chunk: string) => void;
 }
@@ -75,63 +75,100 @@ Do NOT include any responses that are not directly related to the task at hand.
         }
     }
 
-    private async runStep(params: Parameters<typeof streamText>[0]) {
-        const result = streamText(params);
+    private runStepEffect(params: Parameters<typeof streamText>[0]) {
+        return Effect.tryPromise({
+            try: async () => {
+                const result = streamText(params);
 
-        for await (const chunk of result.textStream) {
-            this.onStream?.(chunk);
-        }
+                for await (const chunk of result.textStream) {
+                    this.onStream?.(chunk);
+                }
 
-        return await result.text;
+                const text = await result.text;
+                if (!text || text.trim().length === 0) {
+                    throw new Error("Generation failed: Empty response received.");
+                }
+                return text;
+            },
+            catch: (error) => error, // Pass original error for analysis if needed
+        }).pipe(
+            Effect.retry({
+                schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
+                while: (error) => {
+                    // Do not retry on client errors (4xx)
+                    if (error instanceof Error && "statusCode" in error) {
+                        const status = (error as { statusCode: unknown }).statusCode;
+                        if (typeof status === "number" && status >= 400 && status < 500) {
+                            return false;
+                        }
+                    }
+                    return true;
+                },
+            }),
+            Effect.catchAll((error) => {
+                // If all retries fail, fail the effect
+                return Effect.fail(error);
+            }),
+        );
     }
 
-    async run() {
-        const systemPrompt = await this.getSystemPrompt();
+    run() {
+        return Effect.gen(this, function* (_) {
+            const systemPrompt = yield* _(Effect.tryPromise(() => this.getSystemPrompt()));
 
-        try {
             // Step 1: Draft with Context Gathering (Tools enabled)
-            // We allow multiple steps so it can read files before answering.
-            this.onProgress?.("Drafting content and gathering context...");
-            const draft = await this.runStep({
-                model: this.writerModel,
-                tools: tools,
-                stopWhen: stepCountIs(MAX_STEP_COUNT),
-                system: systemPrompt,
-                prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
-            });
+            if (this.onProgress) this.onProgress("Drafting content and gathering context...");
 
-            this.onProgress?.("Draft complete. Reviewing content...");
+            const draft = yield* _(
+                this.runStepEffect({
+                    model: this.writerModel,
+                    tools: tools,
+                    stopWhen: stepCountIs(MAX_STEP_COUNT),
+                    system: systemPrompt,
+                    prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
+                }),
+            );
+
+            if (this.onProgress) this.onProgress("Draft complete. Reviewing content...");
 
             // Step 2: Review
-            const review = await this.runStep({
-                model: this.reviewerModel,
-                system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to formatting standards if applicable. Be constructive but rigorous.",
-                prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
-            });
+            const review = yield* _(
+                this.runStepEffect({
+                    model: this.reviewerModel,
+                    system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to formatting standards if applicable. Be constructive but rigorous.",
+                    prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
+                }),
+            );
 
-            this.onProgress?.("Review complete. Refining content...");
+            if (this.onProgress) this.onProgress("Review complete. Refining content...");
 
             // Step 3: Refine (without tools to prevent accidental file modifications)
-            const finalContent = await this.runStep({
-                model: this.writerModel,
-                system: systemPrompt,
-                prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
-            });
+            const finalContent = yield* _(
+                this.runStepEffect({
+                    model: this.writerModel,
+                    system: systemPrompt,
+                    prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
+                }),
+            );
 
             return {
                 draft,
                 review,
                 finalContent,
             };
-        } catch (error) {
-            if (error instanceof Error && error.message?.includes("API key")) {
-                throw new Error(
-                    "API authentication failed. Please verify your OpenRouter API key is correct.\n" +
-                        getApiKeySetupMessage(),
-                );
-            }
-            throw error;
-        }
+        }).pipe(
+            Effect.catchAll((error) => {
+                if (error instanceof Error && error.message?.includes("API key")) {
+                    return Effect.fail(
+                        new Error(
+                            "API authentication failed. Please verify your OpenRouter API key is correct.\n" +
+                                getApiKeySetupMessage(),
+                        ),
+                    );
+                }
+                return Effect.fail(error);
+            }),
+        );
     }
 
     // Separate method to execute the write if the user approves

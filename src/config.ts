@@ -1,13 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { z } from "zod";
+import { Schema } from "effect";
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "./constants";
 
-const ConfigSchema = z.object({
-    openRouterApiKey: z.string().optional(),
+const ConfigSchema = Schema.Struct({
+    openRouterApiKey: Schema.optional(Schema.String),
 });
 
-type Config = z.infer<typeof ConfigSchema>;
+type Config = Schema.Schema.Type<typeof ConfigSchema>;
 
 function getConfigDir(): string {
     const platform = process.platform;
@@ -46,7 +46,7 @@ async function readConfig(): Promise<Config> {
     try {
         const content = await fs.readFile(configPath, "utf-8");
         const parsed = JSON.parse(content);
-        return ConfigSchema.parse(parsed);
+        return Schema.decodeUnknownSync(ConfigSchema)(parsed);
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             return {};

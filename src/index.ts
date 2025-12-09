@@ -3,14 +3,31 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { cancel, confirm, intro, isCancel, log, note, outro, spinner, text } from "@clack/prompts";
 import { Command } from "commander";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { ResearchAgent, reasoningOptions } from "./agent.js";
 import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "./config.js";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "./constants.js";
 import { fitToTerminalWidth, formatWindow } from "./text-utils.js";
 
+class UserCancel {
+    readonly _tag = "UserCancel";
+}
+
+const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
+    Effect.tryPromise({
+        try: async () => {
+            const result = await promptFn();
+            if (isCancel(result)) {
+                throw new UserCancel();
+            }
+            return result as T;
+        },
+        catch: (e) => (e instanceof UserCancel ? e : new Error(String(e))),
+    });
+
 const program = new Command();
 
-program.name("jot").description("AI Research Assistant CLI").version("0.0.1");
+program.name("jot").description("AI Research Assistant CLI").version("0.0.2");
 
 const configCommand = program.command("config").description("Manage jot-cli configuration");
 
@@ -67,47 +84,47 @@ program
         "--reasoning-effort <effort>",
         "Effort level for reasoning (low, medium, high)",
         (val) => {
-            if (reasoningOptions.parse(val)) {
-                return val;
+            try {
+                return Schema.decodeUnknownSync(reasoningOptions)(val);
+            } catch {
+                throw new Error(`Invalid reasoning effort: ${val}`);
             }
-            throw new Error(`Invalid reasoning effort: ${val}`);
         },
         "high",
     )
     .action(async (promptArg, options) => {
-        intro(`📝 Jot CLI - AI Research Assistant`);
+        const mainEffect = Effect.gen(function* (_) {
+            yield* _(Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`)));
 
-        // Check for API key first
-        const apiKey = await getOpenRouterApiKey();
-        if (!apiKey) {
-            outro(getApiKeySetupMessage());
-            process.exit(1);
-        }
-
-        let userPrompt = promptArg;
-
-        if (!userPrompt) {
-            const result = await text({
-                message: "What would you like me to write?",
-                placeholder: "e.g., Draft a section on the impact of transformers in NLP",
-                validate(value) {
-                    if (value.length === 0) return "Value is required!";
-                },
-            });
-
-            if (isCancel(result)) {
-                cancel("Operation cancelled.");
-                process.exit(0);
+            // Check for API key first
+            const apiKey = yield* _(Effect.tryPromise(() => getOpenRouterApiKey()));
+            if (!apiKey) {
+                yield* _(Effect.sync(() => outro(getApiKeySetupMessage())));
+                return yield* _(Effect.fail(new Error("API key not configured"))); // Exit with error to stop
             }
-            userPrompt = result;
-        }
 
-        const s = spinner();
-        s.start("Initializing agent...");
+            let userPrompt = promptArg;
 
-        let currentWindowContent = "";
+            if (!userPrompt) {
+                userPrompt = yield* _(
+                    runPrompt(() =>
+                        text({
+                            message: "What would you like me to write?",
+                            placeholder: "e.g., Draft a section on the impact of transformers in NLP",
+                            validate(value) {
+                                if (value.length === 0) return "Value is required!";
+                            },
+                        }),
+                    ),
+                );
+            }
 
-        try {
+            const s = spinner();
+            yield* _(Effect.sync(() => s.start("Initializing agent...")));
+
+            let currentWindowContent = "";
+
+            // Initialize agent (synchronous but side-effecty constructor)
             const agent = new ResearchAgent({
                 prompt: userPrompt,
                 modelWriter: options.writer,
@@ -115,14 +132,9 @@ program
                 openRouterApiKey: apiKey,
                 reasoning: options.reasoning,
                 onProgress: (message) => {
-                    // Stop the previous step's spinner with its final window content
                     const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
                     s.stop(stopMsg);
-
-                    // Print the new step title
                     log.step(message);
-
-                    // Reset and start new spinner for the window
                     currentWindowContent = "";
                     s.start("...");
                 },
@@ -132,67 +144,90 @@ program
                 },
             });
 
-            const result = await agent.run();
+            // Run agent
+            const result = yield* _(
+                agent.run().pipe(
+                    Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))), // Stop spinner on error
+                ),
+            );
 
-            s.stop(formatWindow(currentWindowContent));
+            yield* _(Effect.sync(() => s.stop(formatWindow(currentWindowContent))));
 
-            note(fitToTerminalWidth(`${result.draft.slice(0, 500)}...`), "Initial Draft (Snippet)");
-            note(fitToTerminalWidth(`${result.review.slice(0, 500)}...`), "Reviewer Feedback (Snippet)");
-            note(fitToTerminalWidth(result.finalContent), "Final Refined Content");
+            yield* _(
+                Effect.sync(() => {
+                    note(fitToTerminalWidth(`${result.draft.slice(0, 500)}...`), "Initial Draft (Snippet)");
+                    note(fitToTerminalWidth(`${result.review.slice(0, 500)}...`), "Reviewer Feedback (Snippet)");
+                    note(fitToTerminalWidth(result.finalContent), "Final Refined Content");
+                }),
+            );
 
-            const shouldSave = await confirm({
-                message: "Do you want to save this content to a file?",
-            });
-
-            if (isCancel(shouldSave)) {
-                cancel("Operation cancelled.");
-                process.exit(0);
-            }
+            const shouldSave = yield* _(
+                runPrompt(() =>
+                    confirm({
+                        message: "Do you want to save this content to a file?",
+                    }),
+                ),
+            );
 
             if (shouldSave) {
-                const filePath = await text({
-                    message: "Enter the file path to save to:",
-                    placeholder: "sections/thesis.md",
-                    validate(value) {
-                        if (value.length === 0) return "Path is required!";
-                    },
-                });
+                const filePath = yield* _(
+                    runPrompt(() =>
+                        text({
+                            message: "Enter the file path to save to:",
+                            placeholder: "sections/thesis.md",
+                            validate(value) {
+                                if (value.length === 0) return "Path is required!";
+                            },
+                        }),
+                    ),
+                );
 
-                if (isCancel(filePath)) {
-                    cancel("Operation cancelled.");
-                    process.exit(0);
-                }
+                const appendOrOverwrite = yield* _(
+                    runPrompt(() =>
+                        confirm({
+                            message: `Do you want to APPEND to ${filePath}? (No = Overwrite)`,
+                        }),
+                    ),
+                );
 
-                const appendOrOverwrite = await confirm({
-                    message: `Do you want to APPEND to ${filePath}? (No = Overwrite)`,
-                });
-
-                if (isCancel(appendOrOverwrite)) {
-                    cancel("Operation cancelled.");
-                    process.exit(0);
-                }
-
-                s.start("Saving file...");
+                yield* _(Effect.sync(() => s.start("Saving file...")));
 
                 let contentToWrite = result.finalContent;
                 if (appendOrOverwrite) {
                     try {
-                        const current = await fs.readFile(path.resolve(filePath as string), "utf-8");
-                        contentToWrite = `${current}\n\n${result.finalContent}`;
-                    } catch (_error) {
-                        // File doesn't exist, just write new content
+                        const current = yield* _(
+                            Effect.tryPromise({
+                                try: () => fs.readFile(path.resolve(filePath as string), "utf-8"),
+                                catch: () => null, // Ignore read error (file doesn't exist)
+                            }),
+                        );
+                        if (current) {
+                            contentToWrite = `${current}\n\n${result.finalContent}`;
+                        }
+                    } catch {
+                        // Ignore
                     }
                 }
 
-                await agent.executeWrite(filePath as string, contentToWrite);
-                s.stop("File saved successfully!");
+                yield* _(Effect.tryPromise(() => agent.executeWrite(filePath as string, contentToWrite)));
+                yield* _(Effect.sync(() => s.stop("File saved successfully!")));
             }
-        } catch (error) {
-            s.stop("An error occurred");
-            console.error(error);
-        }
 
-        outro("Done! Happy writing.");
+            yield* _(Effect.sync(() => outro("Done! Happy writing.")));
+        });
+
+        const exit = await Effect.runPromiseExit(mainEffect);
+
+        if (Exit.isFailure(exit)) {
+            const error = Cause.squash(exit.cause);
+            if (error instanceof UserCancel) {
+                cancel("Operation cancelled.");
+                process.exit(0);
+            } else {
+                log.error(error instanceof Error ? error.message : String(error));
+            }
+            process.exit(1);
+        }
     });
 
 program.parse();
