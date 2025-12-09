@@ -1,7 +1,7 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { z } from "zod";
 import { getApiKeySetupMessage } from "./config.js";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "./constants.js";
@@ -40,13 +40,13 @@ export class ResearchAgent {
         this.writerModel = openrouter(options.modelWriter ?? DEFAULT_MODEL_WRITER, {
             reasoning: {
                 effort: options.reasoningEffort ?? "high",
-                enabled: options.reasoning,
+                enabled: options.reasoning ?? true,
             },
         });
         this.reviewerModel = openrouter(options.modelReviewer ?? DEFAULT_MODEL_REVIEWER, {
             reasoning: {
                 effort: options.reasoningEffort ?? "high",
-                enabled: options.reasoning,
+                enabled: options.reasoning ?? true,
             },
         });
         this.prompt = options.prompt;
