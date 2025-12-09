@@ -90,7 +90,7 @@ Do NOT include any responses that are not directly related to the task at hand.
                 }
                 return text;
             },
-            catch: (error) => error, // Pass original error for analysis if needed
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         }).pipe(
             Effect.retry({
                 schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
