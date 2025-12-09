@@ -23,11 +23,11 @@
         "@types/bun": "latest"
     },
     "peerDependencies": {
-        "typescript": "^5"
+        "typescript": "^5.9.3"
     },
     "dependencies": {
         "@clack/prompts": "^0.11.0",
-        "@openrouter/ai-sdk-provider": "^1.4.1",
+        "@openrouter/ai-sdk-provider": "^1.5.0",
         "ai": "^5.0.108",
         "commander": "^14.0.2",
         "ignore": "^7.0.5",
