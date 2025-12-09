@@ -15,6 +15,7 @@
       },
       "devDependencies": {
         "@biomejs/biome": "2.3.8",
+        "@effect/language-service": "^0.62.0",
         "@total-typescript/tsconfig": "^1.0.4",
         "@types/bun": "latest",
       },
@@ -51,6 +52,8 @@
     "@clack/core": ["@clack/core@0.5.0", "", { "dependencies": { "picocolors": "^1.0.0", "sisteransi": "^1.0.5" } }, "sha512-p3y0FIOwaYRUPRcMO7+dlmLh8PSRcrjuTndsiA0WAFbWES0mLZlrjVoBRZ9DzkPFJZG6KGkJmoEAY0ZcVWTkow=="],
 
     "@clack/prompts": ["@clack/prompts@0.11.0", "", { "dependencies": { "@clack/core": "0.5.0", "picocolors": "^1.0.0", "sisteransi": "^1.0.5" } }, "sha512-pMN5FcrEw9hUkZA4f+zLlzivQSeQf5dRGJjSUbvVYDLvpKCdQx5OaknvKzgbtXOizhP+SJJJjqEbOe55uKKfAw=="],
+
+    "@effect/language-service": ["@effect/language-service@0.62.0", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-E1OU/jMiSqgl26D8grU3ClI46fxCfICzC6vwuSrNjW56Vlb/fujIKp97mGfhOE97DC4UTk2I9tlqIGK5fwTTPA=="],
 
     "@openrouter/ai-sdk-provider": ["@openrouter/ai-sdk-provider@1.5.0", "", { "dependencies": { "@openrouter/sdk": "^0.1.27" }, "peerDependencies": { "@toon-format/toon": "^2.0.0", "ai": "^5.0.0", "zod": "^3.24.1 || ^v4" }, "optionalPeers": ["@toon-format/toon"] }, "sha512-2ii9sDriH6piPIcxzBfdfsg5JTpxYY2GXh1lv151xB4j00YXMGWbjj4ilvltyck5h4PtiYd9Q44mSBeXsdv+og=="],
 
