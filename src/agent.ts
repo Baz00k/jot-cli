@@ -95,9 +95,14 @@ Do NOT include any responses that are not directly related to the task at hand.
             Effect.retry({
                 schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
                 while: (error) => {
+                    // Respect isRetryable flag from AI SDK errors
+                    if (error instanceof Error && "isRetryable" in error) {
+                        return Boolean(error.isRetryable);
+                    }
+
                     // Do not retry on client errors (4xx)
                     if (error instanceof Error && "statusCode" in error) {
-                        const status = (error as { statusCode: unknown }).statusCode;
+                        const status = Number(error.statusCode);
                         if (typeof status === "number" && status >= 400 && status < 500) {
                             return false;
                         }
