@@ -134,7 +134,7 @@ export const writeCommand = new Command("write")
                     Effect.tryPromise({
                         try: async () => {
                             try {
-                                await fs.access(path.resolve(filePath as string));
+                                await fs.access(path.resolve(filePath));
                                 return true;
                             } catch {
                                 return false;
@@ -162,7 +162,7 @@ export const writeCommand = new Command("write")
                     if (action === "append") {
                         const current = yield* _(
                             Effect.tryPromise({
-                                try: () => fs.readFile(path.resolve(filePath as string), "utf-8"),
+                                try: () => fs.readFile(path.resolve(filePath), "utf-8"),
                                 catch: () => null,
                             }),
                         );
@@ -173,7 +173,7 @@ export const writeCommand = new Command("write")
                 }
 
                 yield* _(Effect.sync(() => s.start("Saving file...")));
-                yield* _(Effect.tryPromise(() => agent.executeWrite(filePath as string, contentToWrite)));
+                yield* _(Effect.tryPromise(() => agent.executeWrite(filePath, contentToWrite)));
                 yield* _(Effect.sync(() => s.stop("File saved successfully!")));
             }
 
