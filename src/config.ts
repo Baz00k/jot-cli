@@ -77,8 +77,7 @@ export async function getOpenRouterApiKey(): Promise<string | undefined> {
 
 export async function setOpenRouterApiKey(apiKey: string): Promise<void> {
     const config = await readConfig();
-    config.openRouterApiKey = apiKey;
-    await writeConfig(config);
+    await writeConfig({ ...config, openRouterApiKey: apiKey });
 }
 
 export async function hasOpenRouterApiKey(): Promise<boolean> {
