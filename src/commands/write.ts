@@ -41,34 +41,32 @@ export const writeCommand = new Command("write")
         "high",
     )
     .action(async (promptArg, options) => {
-        const mainEffect = Effect.gen(function* (_) {
-            yield* _(Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`)));
+        const mainEffect = Effect.gen(function* () {
+            yield* Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`));
 
             // Check for API key first
-            const apiKey = yield* _(Effect.tryPromise(() => getOpenRouterApiKey()));
+            const apiKey = yield* Effect.tryPromise(() => getOpenRouterApiKey());
             if (!apiKey) {
-                yield* _(Effect.sync(() => outro(getApiKeySetupMessage())));
-                return yield* _(Effect.fail(new Error("API key not configured"))); // Exit with error to stop
+                yield* Effect.sync(() => outro(getApiKeySetupMessage()));
+                return yield* Effect.fail(new Error("API key not configured")); // Exit with error to stop
             }
 
             let userPrompt = promptArg;
 
             if (!userPrompt) {
-                userPrompt = yield* _(
-                    runPrompt(() =>
-                        text({
-                            message: "What would you like me to write?",
-                            placeholder: "e.g., Draft a section on the impact of transformers in NLP",
-                            validate(value) {
-                                if (value.length === 0) return "Value is required!";
-                            },
-                        }),
-                    ),
+                userPrompt = yield* runPrompt(() =>
+                    text({
+                        message: "What would you like me to write?",
+                        placeholder: "e.g., Draft a section on the impact of transformers in NLP",
+                        validate(value) {
+                            if (value.length === 0) return "Value is required!";
+                        },
+                    }),
                 );
             }
 
             const s = spinner();
-            yield* _(Effect.sync(() => s.start("Initializing agent...")));
+            yield* Effect.sync(() => s.start("Initializing agent..."));
 
             let currentWindowContent = "";
 
@@ -93,91 +91,77 @@ export const writeCommand = new Command("write")
             });
 
             // Run agent
-            const result = yield* _(
-                agent.run().pipe(
-                    Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))), // Stop spinner on error
-                ),
+            const result = yield* agent.run().pipe(
+                Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))), // Stop spinner on error
             );
 
-            yield* _(Effect.sync(() => s.stop(formatWindow(currentWindowContent))));
+            yield* Effect.sync(() => s.stop(formatWindow(currentWindowContent)));
 
-            yield* _(
-                Effect.sync(() => {
-                    note(fitToTerminalWidth(`${result.draft.slice(0, 500)}...`), "Initial Draft (Snippet)");
-                    note(fitToTerminalWidth(`${result.review.slice(0, 500)}...`), "Reviewer Feedback (Snippet)");
-                    note(fitToTerminalWidth(result.finalContent), "Final Refined Content");
+            yield* Effect.sync(() => {
+                note(fitToTerminalWidth(`${result.draft.slice(0, 500)}...`), "Initial Draft (Snippet)");
+                note(fitToTerminalWidth(`${result.review.slice(0, 500)}...`), "Reviewer Feedback (Snippet)");
+                note(fitToTerminalWidth(result.finalContent), "Final Refined Content");
+            });
+
+            const shouldSave = yield* runPrompt(() =>
+                confirm({
+                    message: "Do you want to save this content to a file?",
                 }),
             );
 
-            const shouldSave = yield* _(
-                runPrompt(() =>
-                    confirm({
-                        message: "Do you want to save this content to a file?",
-                    }),
-                ),
-            );
-
             if (shouldSave) {
-                const filePath = yield* _(
-                    runPrompt(() =>
-                        text({
-                            message: "Enter the file path to save to:",
-                            placeholder: "sections/thesis.md",
-                            validate(value) {
-                                if (value.length === 0) return "Path is required!";
-                            },
-                        }),
-                    ),
-                );
-
-                const fileExists = yield* _(
-                    Effect.tryPromise({
-                        try: async () => {
-                            try {
-                                await fs.access(path.resolve(filePath));
-                                return true;
-                            } catch {
-                                return false;
-                            }
+                const filePath = yield* runPrompt(() =>
+                    text({
+                        message: "Enter the file path to save to:",
+                        placeholder: "sections/thesis.md",
+                        validate(value) {
+                            if (value.length === 0) return "Path is required!";
                         },
-                        catch: () => false,
                     }),
                 );
+
+                const fileExists = yield* Effect.tryPromise({
+                    try: async () => {
+                        try {
+                            await fs.access(path.resolve(filePath));
+                            return true;
+                        } catch {
+                            return false;
+                        }
+                    },
+                    catch: () => false,
+                });
 
                 let contentToWrite = result.finalContent;
 
                 if (fileExists) {
-                    const action = yield* _(
-                        runPrompt(() =>
-                            select({
-                                message: `File ${filePath} already exists. What would you like to do?`,
-                                options: [
-                                    { value: "append", label: "Append to existing content" },
-                                    { value: "overwrite", label: "Overwrite file" },
-                                ],
-                            }),
-                        ),
+                    const action = yield* runPrompt(() =>
+                        select({
+                            message: `File ${filePath} already exists. What would you like to do?`,
+                            options: [
+                                { value: "append", label: "Append to existing content" },
+                                { value: "overwrite", label: "Overwrite file" },
+                            ],
+                        }),
                     );
 
                     if (action === "append") {
-                        const current = yield* _(
-                            Effect.tryPromise({
-                                try: () => fs.readFile(path.resolve(filePath), "utf-8"),
-                                catch: () => null,
-                            }),
-                        );
+                        const current = yield* Effect.tryPromise({
+                            try: () => fs.readFile(path.resolve(filePath), "utf-8"),
+                            catch: () => null,
+                        });
                         if (current) {
                             contentToWrite = `${current}\n\n${result.finalContent}`;
                         }
                     }
                 }
 
-                yield* _(Effect.sync(() => s.start("Saving file...")));
-                yield* _(Effect.tryPromise(() => agent.executeWrite(filePath, contentToWrite)));
-                yield* _(Effect.sync(() => s.stop("File saved successfully!")));
+                yield* Effect.sync(() => s.start("Saving file..."));
+                yield* Effect.tryPromise(() => agent.executeWrite(filePath, contentToWrite));
+                yield* Effect.sync(() => s.stop("File saved successfully!"));
             }
 
-            yield* _(Effect.sync(() => outro("Done! Happy writing.")));
+            yield* Effect.sync(() => outro("Done! Happy writing."));
         });
 
         const exit = await Effect.runPromiseExit(mainEffect);
