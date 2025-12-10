@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.2](https://github.com/Baz00k/jot-cli/compare/v0.0.1...v0.0.2) (2025-12-10)
+
+
+### Bug Fixes
+
+* agent step message ([dfb9d54](https://github.com/Baz00k/jot-cli/commit/dfb9d54b3210656c93c481af67d8447f7a208bad))
+* do not attempt to retry unretryable errors ([f842c2c](https://github.com/Baz00k/jot-cli/commit/f842c2c13af9dbec96887a859f72c9d7948f9aa5))
+* ensure reasoning is enabled by default ([d79cd40](https://github.com/Baz00k/jot-cli/commit/d79cd404e766cb8ef1ea57a3974446849901d50e))
+* use select for append/overwrite options, only show prompt if file exists ([4880a52](https://github.com/Baz00k/jot-cli/commit/4880a525cdf6ff86ef55d5423595a1c38c77b563))
+* writing to read only object ([217da86](https://github.com/Baz00k/jot-cli/commit/217da8672065d0924ebfaf354546da39bc566633))
+* wrong tool json schema introduced by effect rewrite ([ef68f4c](https://github.com/Baz00k/jot-cli/commit/ef68f4c563f4e5f8823e780e0d50e4de08325d00))
+
 ## 0.0.1 (2025-12-08)
 
 
