@@ -122,7 +122,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             const systemPrompt = yield* Effect.tryPromise(() => this.getSystemPrompt());
 
             // Step 1: Draft with Context Gathering (Tools enabled)
-            if (this.onProgress) this.onProgress("Drafting content and gathering context...");
+            if (this.onProgress) this.onProgress("Gathering context and drafting content...");
 
             const draft = yield* this.runStepEffect({
                 model: this.writerModel,
