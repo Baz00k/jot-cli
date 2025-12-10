@@ -118,43 +118,37 @@ Do NOT include any responses that are not directly related to the task at hand.
     }
 
     run() {
-        return Effect.gen(this, function* (_) {
-            const systemPrompt = yield* _(Effect.tryPromise(() => this.getSystemPrompt()));
+        return Effect.gen(this, function* () {
+            const systemPrompt = yield* Effect.tryPromise(() => this.getSystemPrompt());
 
             // Step 1: Draft with Context Gathering (Tools enabled)
             if (this.onProgress) this.onProgress("Drafting content and gathering context...");
 
-            const draft = yield* _(
-                this.runStepEffect({
-                    model: this.writerModel,
-                    tools: tools,
-                    stopWhen: stepCountIs(MAX_STEP_COUNT),
-                    system: systemPrompt,
-                    prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
-                }),
-            );
+            const draft = yield* this.runStepEffect({
+                model: this.writerModel,
+                tools: tools,
+                stopWhen: stepCountIs(MAX_STEP_COUNT),
+                system: systemPrompt,
+                prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
+            });
 
             if (this.onProgress) this.onProgress("Draft complete. Reviewing content...");
 
             // Step 2: Review
-            const review = yield* _(
-                this.runStepEffect({
-                    model: this.reviewerModel,
-                    system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to formatting standards if applicable. Be constructive but rigorous.",
-                    prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
-                }),
-            );
+            const review = yield* this.runStepEffect({
+                model: this.reviewerModel,
+                system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to formatting standards if applicable. Be constructive but rigorous.",
+                prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
+            });
 
             if (this.onProgress) this.onProgress("Review complete. Refining content...");
 
             // Step 3: Refine (without tools to prevent accidental file modifications)
-            const finalContent = yield* _(
-                this.runStepEffect({
-                    model: this.writerModel,
-                    system: systemPrompt,
-                    prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
-                }),
-            );
+            const finalContent = yield* this.runStepEffect({
+                model: this.writerModel,
+                system: systemPrompt,
+                prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
+            });
 
             return {
                 draft,
