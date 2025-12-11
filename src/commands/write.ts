@@ -4,8 +4,8 @@ import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, te
 import { Command } from "commander";
 import { Cause, Data, Effect, Exit, Schema } from "effect";
 import { ResearchAgent, reasoningOptions } from "../agent.js";
-import { getApiKeySetupMessage, getOpenRouterApiKey } from "../config.js";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "../constants.js";
+import { ConfigLive, ConfigService, getApiKeySetupMessage } from "../services/ConfigService.js";
 import { fitToTerminalWidth, formatWindow } from "../text-utils.js";
 
 class UserCancel extends Data.TaggedError("UserCancel") {}
@@ -44,8 +44,11 @@ export const writeCommand = new Command("write")
         const mainEffect = Effect.gen(function* () {
             yield* Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`));
 
-            // Check for API key first
-            const apiKey = yield* Effect.tryPromise(() => getOpenRouterApiKey());
+            // Check for API key first using ConfigService
+            const configService = yield* ConfigService;
+            const config = yield* configService.get;
+            const apiKey = config.openRouterApiKey;
+
             if (!apiKey) {
                 yield* Effect.sync(() => outro(getApiKeySetupMessage()));
                 return yield* Effect.fail(new Error("API key not configured")); // Exit with error to stop
@@ -164,7 +167,7 @@ export const writeCommand = new Command("write")
             yield* Effect.sync(() => outro("Done! Happy writing."));
         });
 
-        const exit = await Effect.runPromiseExit(mainEffect);
+        const exit = await Effect.runPromiseExit(mainEffect.pipe(Effect.provide(ConfigLive)));
 
         if (Exit.isFailure(exit)) {
             const error = Cause.squash(exit.cause);
