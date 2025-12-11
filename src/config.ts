@@ -29,9 +29,7 @@ function getConfigDir(): string {
     return path.join(configHome, CONFIG_DIR_NAME);
 }
 
-export function getConfigPath(): string {
-    return path.join(getConfigDir(), CONFIG_FILE_NAME);
-}
+export const getConfigPath = () => path.join(getConfigDir(), CONFIG_FILE_NAME);
 
 const wrapError =
     (message: string) =>
