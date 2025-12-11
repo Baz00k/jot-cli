@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getConfigLocation, getOpenRouterApiKey, hasOpenRouterApiKey, setOpenRouterApiKey } from "../src/config.js";
+import { Effect } from "effect";
+import { getConfigPath, getOpenRouterApiKey, hasOpenRouterApiKey, setOpenRouterApiKey } from "../src/config.js";
 
 describe("Config Module", () => {
     let originalHome: string | undefined;
@@ -47,29 +48,29 @@ describe("Config Module", () => {
     });
 
     test("returns correct config path for platform", () => {
-        const location = getConfigLocation();
+        const location = getConfigPath();
         expect(location).toContain("jot-cli");
         expect(location).toContain("config.json");
     });
 
     test("stores and retrieves API key", async () => {
         const testKey = "sk-or-v1-test-key";
-        await setOpenRouterApiKey(testKey);
+        await Effect.runPromise(setOpenRouterApiKey(testKey));
 
-        const retrieved = await getOpenRouterApiKey();
+        const retrieved = await Effect.runPromise(getOpenRouterApiKey);
         expect(retrieved).toBe(testKey);
     });
 
     test("detects when API key is not set", async () => {
-        const hasKey = await hasOpenRouterApiKey();
+        const hasKey = await Effect.runPromise(hasOpenRouterApiKey);
         expect(hasKey).toBe(false);
     });
 
     test("updates existing API key", async () => {
-        await setOpenRouterApiKey("first-key");
-        await setOpenRouterApiKey("second-key");
+        await Effect.runPromise(setOpenRouterApiKey("first-key"));
+        await Effect.runPromise(setOpenRouterApiKey("second-key"));
 
-        const retrieved = await getOpenRouterApiKey();
+        const retrieved = await Effect.runPromise(getOpenRouterApiKey);
         expect(retrieved).toBe("second-key");
     });
 });

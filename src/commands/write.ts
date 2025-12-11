@@ -45,7 +45,7 @@ export const writeCommand = new Command("write")
             yield* Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`));
 
             // Check for API key first
-            const apiKey = yield* Effect.tryPromise(() => getOpenRouterApiKey());
+            const apiKey = yield* getOpenRouterApiKey;
             if (!apiKey) {
                 yield* Effect.sync(() => outro(getApiKeySetupMessage()));
                 return yield* Effect.fail(new Error("API key not configured")); // Exit with error to stop

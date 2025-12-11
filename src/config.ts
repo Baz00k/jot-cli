@@ -29,9 +29,14 @@ function getConfigDir(): string {
     return path.join(configHome, CONFIG_DIR_NAME);
 }
 
-function getConfigPath(): string {
+export function getConfigPath(): string {
     return path.join(getConfigDir(), CONFIG_FILE_NAME);
 }
+
+const wrapError =
+    (message: string) =>
+    (error: unknown): Error =>
+        new Error(`${message}: ${error instanceof Error ? error.message : String(error)}`);
 
 const ensureConfigDir = Effect.tryPromise({
     try: () => fs.mkdir(getConfigDir(), { recursive: true }),
@@ -62,7 +67,7 @@ const readConfigEffect = Effect.gen(function* () {
     return {
         openRouterApiKey: Option.getOrUndefined(config.openRouterApiKey),
     } satisfies ConfigData;
-});
+}).pipe(Effect.mapError(wrapError("Failed to read config file")));
 
 const writeConfig = (config: ConfigData) =>
     Effect.gen(function* () {
@@ -72,32 +77,19 @@ const writeConfig = (config: ConfigData) =>
             try: () => fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8"),
             catch: (error) => error as Error,
         });
-    });
+    }).pipe(Effect.mapError(wrapError("Failed to write config file")));
 
-export async function getConfig(): Promise<ConfigData> {
-    return Effect.runPromise(readConfigEffect);
-}
+export const getConfig = readConfigEffect;
 
-export async function getOpenRouterApiKey(): Promise<string | undefined> {
-    return Effect.runPromise(readConfigEffect.pipe(Effect.map((config) => config.openRouterApiKey)));
-}
+export const getOpenRouterApiKey = readConfigEffect.pipe(Effect.map((config) => config.openRouterApiKey));
 
-export async function setOpenRouterApiKey(apiKey: string): Promise<void> {
-    return Effect.runPromise(
-        Effect.gen(function* () {
-            const config = yield* readConfigEffect;
-            yield* writeConfig({ ...config, openRouterApiKey: apiKey });
-        }),
-    );
-}
+export const setOpenRouterApiKey = (apiKey: string) =>
+    Effect.gen(function* () {
+        const config = yield* readConfigEffect;
+        yield* writeConfig({ ...config, openRouterApiKey: apiKey });
+    }).pipe(Effect.mapError(wrapError("Failed to save config file")));
 
-export async function hasOpenRouterApiKey(): Promise<boolean> {
-    return Effect.runPromise(readConfigEffect.pipe(Effect.map((config) => !!config.openRouterApiKey)));
-}
-
-export function getConfigLocation(): string {
-    return getConfigPath();
-}
+export const hasOpenRouterApiKey = readConfigEffect.pipe(Effect.map((config) => !!config.openRouterApiKey));
 
 export function getApiKeySetupMessage(): string {
     return `OpenRouter API key is not configured.

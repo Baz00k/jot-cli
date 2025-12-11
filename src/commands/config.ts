@@ -1,6 +1,7 @@
 import { intro, outro } from "@clack/prompts";
 import { Command } from "commander";
-import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "../config.js";
+import { Effect } from "effect";
+import { getApiKeySetupMessage, getConfigPath, getOpenRouterApiKey, setOpenRouterApiKey } from "../config.js";
 
 export const configCommand = new Command("config").description("Manage jot-cli configuration");
 
@@ -12,8 +13,8 @@ configCommand
         intro(`🔑 Jot CLI - Configuration`);
 
         try {
-            await setOpenRouterApiKey(apiKey);
-            outro(`API key saved successfully at: ${getConfigLocation()}`);
+            await Effect.runPromise(setOpenRouterApiKey(apiKey));
+            outro(`API key saved successfully at: ${getConfigPath()}`);
         } catch (error) {
             if (error instanceof Error) {
                 outro(`Failed to save API key: ${error.message}`);
@@ -28,17 +29,17 @@ configCommand
     .command("show-path")
     .description("Show the configuration file location")
     .action(() => {
-        console.log(getConfigLocation());
+        console.log(getConfigPath());
     });
 
 configCommand
     .command("status")
     .description("Check if API key is configured")
     .action(async () => {
-        const apiKey = await getOpenRouterApiKey();
+        const apiKey = await Effect.runPromise(getOpenRouterApiKey);
         if (apiKey) {
             console.log("✓ API key is configured");
-            console.log(`Config location: ${getConfigLocation()}`);
+            console.log(`Config location: ${getConfigPath()}`);
         } else {
             console.log("✗ API key is not configured");
             console.log("");
