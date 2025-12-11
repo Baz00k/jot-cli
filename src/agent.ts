@@ -4,7 +4,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
 import { Effect, Schedule, Schema } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "./constants.js";
-import { getApiKeySetupMessage } from "./services/ConfigService.js";
+import { getApiKeySetupMessageSync } from "./services/ConfigService.js";
 import { safePath, tools } from "./tools.js";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
@@ -30,7 +30,7 @@ export class ResearchAgent {
     constructor(options: AgentOptions) {
         const apiKey = options.openRouterApiKey;
         if (!apiKey) {
-            throw new Error(getApiKeySetupMessage());
+            throw new Error(getApiKeySetupMessageSync());
         }
 
         const openrouter = createOpenRouter({
@@ -161,7 +161,7 @@ Do NOT include any responses that are not directly related to the task at hand.
                     return Effect.fail(
                         new Error(
                             "API authentication failed. Please verify your OpenRouter API key is correct.\n" +
-                                getApiKeySetupMessage(),
+                                getApiKeySetupMessageSync(),
                         ),
                     );
                 }

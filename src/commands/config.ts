@@ -1,7 +1,7 @@
 import { intro, outro } from "@clack/prompts";
 import { Command } from "commander";
 import { Effect } from "effect";
-import { ConfigLive, ConfigService, getApiKeySetupMessage } from "../services/ConfigService.js";
+import { ConfigService, getApiKeySetupMessage } from "../services/ConfigService.js";
 
 export const configCommand = new Command("config").description("Manage jot-cli configuration");
 
@@ -17,10 +17,10 @@ configCommand
             yield* configService.update({ openRouterApiKey: apiKey });
             const configPath = yield* configService.getPath;
             return configPath;
-        }).pipe(Effect.provide(ConfigLive));
+        });
 
         try {
-            const configPath = await Effect.runPromise(program);
+            const configPath = await globalThis.configRuntime.runPromise(program);
             outro(`API key saved successfully at: ${configPath}`);
         } catch (error) {
             if (error instanceof Error) {
@@ -39,9 +39,9 @@ configCommand
         const program = Effect.gen(function* () {
             const configService = yield* ConfigService;
             return yield* configService.getPath;
-        }).pipe(Effect.provide(ConfigLive));
+        });
 
-        const configPath = await Effect.runPromise(program);
+        const configPath = await globalThis.configRuntime.runPromise(program);
         console.log(configPath);
     });
 
@@ -53,16 +53,17 @@ configCommand
             const configService = yield* ConfigService;
             const config = yield* configService.get;
             const configPath = yield* configService.getPath;
-            return { apiKey: config.openRouterApiKey, configPath };
-        }).pipe(Effect.provide(ConfigLive));
+            const setupMessage = yield* getApiKeySetupMessage();
+            return { apiKey: config.openRouterApiKey, configPath, setupMessage };
+        });
 
-        const { apiKey, configPath } = await Effect.runPromise(program);
+        const { apiKey, configPath, setupMessage } = await globalThis.configRuntime.runPromise(program);
         if (apiKey) {
             console.log("✓ API key is configured");
             console.log(`Config location: ${configPath}`);
         } else {
             console.log("✗ API key is not configured");
             console.log("");
-            console.log(getApiKeySetupMessage());
+            console.log(setupMessage);
         }
     });
