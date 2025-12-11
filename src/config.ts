@@ -79,8 +79,6 @@ const writeConfig = (config: ConfigData) =>
         });
     }).pipe(Effect.mapError(wrapError("Failed to write config file")));
 
-export const getConfig = readConfigEffect;
-
 export const getOpenRouterApiKey = readConfigEffect.pipe(Effect.map((config) => config.openRouterApiKey));
 
 export const setOpenRouterApiKey = (apiKey: string) =>
