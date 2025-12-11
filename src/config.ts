@@ -1,13 +1,15 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { Schema } from "effect";
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "./constants";
+import { Config, ConfigProvider, Effect, Option } from "effect";
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "./constants.js";
 
-const ConfigSchema = Schema.Struct({
-    openRouterApiKey: Schema.optional(Schema.String),
+type ConfigData = {
+    openRouterApiKey?: string;
+};
+
+const configDefinition = Config.all({
+    openRouterApiKey: Config.option(Config.string("openRouterApiKey")),
 });
-
-type Config = Schema.Schema.Type<typeof ConfigSchema>;
 
 function getConfigDir(): string {
     const platform = process.platform;
@@ -31,58 +33,66 @@ function getConfigPath(): string {
     return path.join(getConfigDir(), CONFIG_FILE_NAME);
 }
 
-async function ensureConfigDir(): Promise<void> {
-    const configDir = getConfigDir();
-    try {
-        await fs.mkdir(configDir, { recursive: true });
-    } catch (error) {
-        throw new Error(`Failed to create config directory: ${error}`);
-    }
-}
+const ensureConfigDir = Effect.tryPromise({
+    try: () => fs.mkdir(getConfigDir(), { recursive: true }),
+    catch: (error) => error as Error,
+});
 
-async function readConfig(): Promise<Config> {
+const readConfigEffect = Effect.gen(function* () {
     const configPath = getConfigPath();
 
-    try {
-        const content = await fs.readFile(configPath, "utf-8");
-        const parsed = JSON.parse(content);
-        return Schema.decodeUnknownSync(ConfigSchema)(parsed);
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return {};
-        }
-        throw new Error(`Failed to read config file: ${error}`);
-    }
-}
+    const provider = yield* Effect.tryPromise({
+        try: async () => {
+            const content = await fs.readFile(configPath, "utf-8");
+            return ConfigProvider.fromJson(JSON.parse(content));
+        },
+        catch: (error) => error as Error,
+    }).pipe(
+        Effect.catchAll((error) => {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                return Effect.succeed(ConfigProvider.fromJson({}));
+            }
 
-async function writeConfig(config: Config): Promise<void> {
-    await ensureConfigDir();
-    const configPath = getConfigPath();
+            return Effect.fail(error);
+        }),
+    );
 
-    try {
-        await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
-    } catch (error) {
-        throw new Error(`Failed to write config file: ${error}`);
-    }
-}
+    const config = yield* Effect.withConfigProvider(provider)(configDefinition);
 
-export async function getConfig(): Promise<Config> {
-    return readConfig();
+    return {
+        openRouterApiKey: Option.getOrUndefined(config.openRouterApiKey),
+    } satisfies ConfigData;
+});
+
+const writeConfig = (config: ConfigData) =>
+    Effect.gen(function* () {
+        yield* ensureConfigDir;
+        const configPath = getConfigPath();
+        yield* Effect.tryPromise({
+            try: () => fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8"),
+            catch: (error) => error as Error,
+        });
+    });
+
+export async function getConfig(): Promise<ConfigData> {
+    return Effect.runPromise(readConfigEffect);
 }
 
 export async function getOpenRouterApiKey(): Promise<string | undefined> {
-    const config = await readConfig();
-    return config.openRouterApiKey;
+    return Effect.runPromise(readConfigEffect.pipe(Effect.map((config) => config.openRouterApiKey)));
 }
 
 export async function setOpenRouterApiKey(apiKey: string): Promise<void> {
-    const config = await readConfig();
-    await writeConfig({ ...config, openRouterApiKey: apiKey });
+    return Effect.runPromise(
+        Effect.gen(function* () {
+            const config = yield* readConfigEffect;
+            yield* writeConfig({ ...config, openRouterApiKey: apiKey });
+        }),
+    );
 }
 
 export async function hasOpenRouterApiKey(): Promise<boolean> {
-    const apiKey = await getOpenRouterApiKey();
-    return !!apiKey;
+    return Effect.runPromise(readConfigEffect.pipe(Effect.map((config) => !!config.openRouterApiKey)));
 }
 
 export function getConfigLocation(): string {
