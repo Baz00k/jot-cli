@@ -31,6 +31,10 @@
             {
                 "name": "@effect/language-service"
             }
-        ]
+        ],
+
+        "paths": {
+            "@/*": ["./src/*"]
+        }
     }
 }
