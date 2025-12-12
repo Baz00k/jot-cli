@@ -3,9 +3,9 @@ import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
 import { Effect, Schedule, Schema } from "effect";
-import { getApiKeySetupMessage } from "./config.js";
-import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "./constants.js";
-import { safePath, tools } from "./tools.js";
+import { getApiKeySetupMessage } from "@/config";
+import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
+import { safePath, tools } from "@/tools";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
