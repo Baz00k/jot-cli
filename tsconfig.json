@@ -29,6 +29,7 @@
 
         // Cache
         "incremental": true,
+        "tsBuildInfoFile": "${configDir}/.cache/tsbuildinfo.json",
 
         "plugins": [
             {
