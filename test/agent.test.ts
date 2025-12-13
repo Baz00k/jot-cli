@@ -25,8 +25,8 @@ describe("ResearchAgent", () => {
 
     test("requires API key with helpful error message", () => {
         expect(() => {
-            new ResearchAgent({ prompt: "Test" });
-        }).toThrow(/config set-key/i);
+            new ResearchAgent({ prompt: "Test", openRouterApiKey: "" });
+        }).toThrow(/OpenRouter API key is required/i);
     });
 
     test("creates instance with valid configuration", () => {

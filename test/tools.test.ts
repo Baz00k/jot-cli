@@ -45,8 +45,10 @@ describe("Tools Module", () => {
             await fs.mkdir(path.join(testDir, ".git"));
             await fs.writeFile(path.join(testDir, "paper.tex"), "content");
 
-            const result = await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions);
-            const fileNames = result?.map((entry: { name: string }) => entry.name);
+            const result = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions)) as {
+                name: string;
+            }[];
+            const fileNames = result?.map((entry) => entry.name);
             expect(fileNames).not.toContain(".");
             expect(fileNames).not.toContain(".git");
         });
@@ -83,8 +85,10 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "ignored.txt"), "content");
             await fs.mkdir(path.join(testDir, "temp"));
 
-            const result = await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions);
-            const fileNames = result?.map((entry: { name: string }) => entry.name);
+            const result = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions)) as {
+                name: string;
+            }[];
+            const fileNames = result?.map((entry) => entry.name);
 
             expect(fileNames).toContain("included.txt");
             expect(fileNames).not.toContain("ignored.txt");
@@ -98,13 +102,13 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "included.txt"), "searchme\n");
             await fs.writeFile(path.join(testDir, "ignored.txt"), "searchme\n");
 
-            const result = await searchFilesTool.execute?.(
+            const result = (await searchFilesTool.execute?.(
                 { pattern: "searchme", caseSensitive: false, maxResults: 50 },
                 {} as ToolCallOptions,
-            );
+            )) as { results: { file: string }[] };
 
             expect(result?.results.length).toBe(1);
-            expect(result?.results[0].file).toContain("included.txt");
+            expect(result?.results[0]?.file).toContain("included.txt");
         });
     });
 
@@ -113,10 +117,10 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "file1.txt"), "hello world\n");
             await fs.writeFile(path.join(testDir, "file2.txt"), "hello there\n");
 
-            const result = await searchFilesTool.execute?.(
+            const result = (await searchFilesTool.execute?.(
                 { pattern: "hello", caseSensitive: false, maxResults: 50 },
                 {} as ToolCallOptions,
-            );
+            )) as { totalResults: number };
 
             expect(result?.totalResults).toBe(2);
         });
@@ -125,7 +129,7 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "file.ts"), "const test = 123;\n");
             await fs.writeFile(path.join(testDir, "file.txt"), "const test = 456;\n");
 
-            const result = await searchFilesTool.execute?.(
+            const result = (await searchFilesTool.execute?.(
                 {
                     pattern: "test",
                     filePattern: "*.ts",
@@ -133,10 +137,10 @@ describe("Tools Module", () => {
                     maxResults: 50,
                 },
                 {} as ToolCallOptions,
-            );
+            )) as { results: { file: string }[] };
 
             expect(result?.results.length).toBe(1);
-            expect(result?.results[0].file).toContain(".ts");
+            expect(result?.results[0]?.file).toContain(".ts");
         });
 
         test("searches recursively in subdirectories", async () => {
@@ -144,10 +148,10 @@ describe("Tools Module", () => {
             await fs.writeFile(path.join(testDir, "root.txt"), "find this\n");
             await fs.writeFile(path.join(testDir, "subdir/nested.txt"), "find this\n");
 
-            const result = await searchFilesTool.execute?.(
+            const result = (await searchFilesTool.execute?.(
                 { pattern: "find this", caseSensitive: false, maxResults: 50 },
                 {} as ToolCallOptions,
-            );
+            )) as { totalResults: number };
 
             expect(result?.totalResults).toBe(2);
         });

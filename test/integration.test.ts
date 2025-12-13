@@ -53,7 +53,9 @@ dist/
         await fs.writeFile(path.join(testDir, ".env"), "API_KEY=secret\n");
 
         // Test list_files respects gitignore
-        const listResult = await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions);
+        const listResult = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions)) as {
+            name: string;
+        }[];
         const listedNames = listResult?.map((e) => e.name);
 
         expect(listedNames).toContain("src");
@@ -64,10 +66,10 @@ dist/
         expect(listedNames).not.toContain(".env");
 
         // Test search_files respects gitignore
-        const searchResult = await searchFilesTool.execute?.(
+        const searchResult = (await searchFilesTool.execute?.(
             { pattern: "API", caseSensitive: true, maxResults: 50 },
             {} as ToolCallOptions,
-        );
+        )) as { results: { file: string }[] };
 
         const searchedFiles = searchResult?.results.map((r: { file: string }) => r.file);
 
