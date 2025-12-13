@@ -1,7 +1,8 @@
 import { intro, outro } from "@clack/prompts";
 import { Args, Command } from "@effect/cli";
 import { Console, Effect } from "effect";
-import { getApiKeySetupMessage, getConfigLocation, getOpenRouterApiKey, setOpenRouterApiKey } from "@/config";
+import { Messages } from "@/domain/messages";
+import { Config } from "@/services/config";
 
 const setKey = Command.make(
     "set-key",
@@ -10,30 +11,32 @@ const setKey = Command.make(
     },
     (args) =>
         Effect.gen(function* () {
+            const config = yield* Config;
             const apiKey = args.args;
             intro(`🔑 Jot CLI - Configuration`);
-            yield* Effect.tryPromise({
-                try: () => setOpenRouterApiKey(apiKey),
-                catch: (e) => new Error(`Failed to save API key: ${e instanceof Error ? e.message : String(e)}`),
-            });
-            outro(`API key saved successfully at: ${getConfigLocation()}`);
+
+            yield* config.update({ openRouterApiKey: apiKey });
+
+            outro(`API key saved successfully at: ${config.location}`);
         }),
 ).pipe(Command.withDescription("Set your OpenRouter API key"));
 
-const showPath = Command.make("show-path", {}, () => Console.log(getConfigLocation())).pipe(
-    Command.withDescription("Show the configuration file location"),
-);
+const showPath = Command.make("show-path", {}, () =>
+    Effect.gen(function* () {
+        const config = yield* Config;
+        yield* Console.log(config.location);
+    }),
+).pipe(Command.withDescription("Show the configuration file location"));
 
 const status = Command.make("status", {}, () =>
     Effect.gen(function* () {
-        const apiKey = yield* Effect.tryPromise(() => getOpenRouterApiKey());
-        if (apiKey) {
-            yield* Console.log("✓ API key is configured");
-            yield* Console.log(`Config location: ${getConfigLocation()}`);
+        const config = yield* Config;
+        const userConfig = yield* config.get;
+
+        if (userConfig.openRouterApiKey) {
+            yield* Console.log(Messages.apiKeyConfigured(config.location));
         } else {
-            yield* Console.log("✗ API key is not configured");
-            yield* Console.log("");
-            yield* Console.log(getApiKeySetupMessage());
+            yield* Console.log(Messages.apiKeySetup(config.location));
         }
     }),
 ).pipe(Command.withDescription("Check if API key is configured"));

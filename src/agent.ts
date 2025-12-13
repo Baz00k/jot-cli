@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
 import { Effect, Schedule, Schema } from "effect";
-import { getApiKeySetupMessage } from "@/config";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import { safePath, tools } from "@/tools";
 
@@ -13,7 +12,7 @@ export interface AgentOptions {
     prompt: string;
     modelWriter?: string;
     modelReviewer?: string;
-    openRouterApiKey?: string;
+    openRouterApiKey: string;
     reasoning?: boolean;
     reasoningEffort?: Schema.Schema.Type<typeof reasoningOptions>;
     onProgress?: (message: string) => void;
@@ -28,13 +27,8 @@ export class ResearchAgent {
     private onStream?: (chunk: string) => void;
 
     constructor(options: AgentOptions) {
-        const apiKey = options.openRouterApiKey;
-        if (!apiKey) {
-            throw new Error(getApiKeySetupMessage());
-        }
-
         const openrouter = createOpenRouter({
-            apiKey,
+            apiKey: options.openRouterApiKey,
         });
 
         this.writerModel = openrouter(options.modelWriter ?? DEFAULT_MODEL_WRITER, {
@@ -155,19 +149,7 @@ Do NOT include any responses that are not directly related to the task at hand.
                 review,
                 finalContent,
             };
-        }).pipe(
-            Effect.catchAll((error) => {
-                if (error instanceof Error && error.message?.includes("API key")) {
-                    return Effect.fail(
-                        new Error(
-                            "API authentication failed. Please verify your OpenRouter API key is correct.\n" +
-                                getApiKeySetupMessage(),
-                        ),
-                    );
-                }
-                return Effect.fail(error);
-            }),
-        );
+        }).pipe(Effect.catchAll((error) => Effect.fail(error)));
     }
 
     // Separate method to execute the write if the user approves

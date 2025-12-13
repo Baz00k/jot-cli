@@ -4,9 +4,10 @@ import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, te
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { ResearchAgent, reasoningOptions } from "@/agent";
-import { getApiKeySetupMessage, getOpenRouterApiKey } from "@/config";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { UserCancel } from "@/domain/errors";
+import { Messages } from "@/domain/messages";
+import { Config } from "@/services/config";
 import { fitToTerminalWidth, formatWindow } from "@/text-utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
@@ -48,14 +49,17 @@ export const writeCommand = Command.make(
     },
     ({ args: promptArgOption, options }) =>
         Effect.gen(function* () {
+            const config = yield* Config;
             const promptArg = Option.getOrUndefined(promptArgOption);
 
             yield* Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`));
 
             // Check for API key first
-            const apiKey = yield* Effect.tryPromise(() => getOpenRouterApiKey());
+            const userConfig = yield* config.get;
+            const apiKey = userConfig.openRouterApiKey;
+
             if (!apiKey) {
-                yield* Effect.sync(() => outro(getApiKeySetupMessage()));
+                yield* Effect.sync(() => outro(Messages.apiKeySetup(config.location)));
                 return yield* Effect.fail(new Error("API key not configured"));
             }
 

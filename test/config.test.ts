@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getConfigLocation, getOpenRouterApiKey, hasOpenRouterApiKey, setOpenRouterApiKey } from "@/config";
+import { BunContext } from "@effect/platform-bun";
+import { Effect, Layer } from "effect";
+import { Config, ConfigLive } from "@/services/config";
 
 describe("Config Module", () => {
     let originalHome: string | undefined;
@@ -46,30 +48,51 @@ describe("Config Module", () => {
         }
     });
 
-    test("returns correct config path for platform", () => {
-        const location = getConfigLocation();
-        expect(location).toContain("jot-cli");
-        expect(location).toContain("config.json");
-    });
+    // Provide the Config service, with its dependencies satisfied by BunContext
+    const MainLayer = ConfigLive.pipe(Layer.provide(BunContext.layer));
 
-    test("stores and retrieves API key", async () => {
-        const testKey = "sk-or-v1-test-key";
-        await setOpenRouterApiKey(testKey);
+    const runWithConfig = <A, E>(effect: Effect.Effect<A, E, Config>) =>
+        Effect.runPromise(Effect.provide(effect, MainLayer));
 
-        const retrieved = await getOpenRouterApiKey();
-        expect(retrieved).toBe(testKey);
-    });
+    test("returns correct config path for platform", () =>
+        runWithConfig(
+            Effect.gen(function* () {
+                const config = yield* Config;
+                expect(config.location).toContain("jot-cli");
+                expect(config.location).toContain("config.json");
+            }),
+        ));
 
-    test("detects when API key is not set", async () => {
-        const hasKey = await hasOpenRouterApiKey();
-        expect(hasKey).toBe(false);
-    });
+    test("stores and retrieves API key", () =>
+        runWithConfig(
+            Effect.gen(function* () {
+                const testKey = "sk-or-v1-test-key";
+                const config = yield* Config;
+                yield* config.update({ openRouterApiKey: testKey });
 
-    test("updates existing API key", async () => {
-        await setOpenRouterApiKey("first-key");
-        await setOpenRouterApiKey("second-key");
+                const userConfig = yield* config.get;
+                expect(userConfig.openRouterApiKey).toBe(testKey);
+            }),
+        ));
 
-        const retrieved = await getOpenRouterApiKey();
-        expect(retrieved).toBe("second-key");
-    });
+    test("detects when API key is not set", () =>
+        runWithConfig(
+            Effect.gen(function* () {
+                const config = yield* Config;
+                const userConfig = yield* config.get;
+                expect(userConfig.openRouterApiKey).toBeUndefined();
+            }),
+        ));
+
+    test("updates existing API key", () =>
+        runWithConfig(
+            Effect.gen(function* () {
+                const config = yield* Config;
+                yield* config.update({ openRouterApiKey: "first-key" });
+                yield* config.update({ openRouterApiKey: "second-key" });
+
+                const userConfig = yield* config.get;
+                expect(userConfig.openRouterApiKey).toBe("second-key");
+            }),
+        ));
 });

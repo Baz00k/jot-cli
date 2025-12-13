@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { Command } from "@effect/cli";
 import { BunContext, BunRuntime } from "@effect/platform-bun";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { configCommand } from "@/commands/config";
 import { writeCommand } from "@/commands/write";
+import { ConfigLive } from "@/services/config";
 import { version } from "../package.json";
 
 const command = Command.make("jot").pipe(
@@ -18,4 +19,6 @@ const cli = Command.run(command, {
 
 const program = Effect.suspend(() => cli(process.argv));
 
-program.pipe(Effect.provide(BunContext.layer), BunRuntime.runMain);
+const MainLayer = Layer.merge(ConfigLive.pipe(Layer.provide(BunContext.layer)), BunContext.layer);
+
+program.pipe(Effect.provide(MainLayer), BunRuntime.runMain);
