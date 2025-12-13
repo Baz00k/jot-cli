@@ -9,8 +9,8 @@
         "dist"
     ],
     "scripts": {
-        "check": "biome check .",
-        "check:fix": "biome check --write",
+        "check": "biome check . && tsc --noEmit",
+        "check:fix": "biome check --write && tsc --noEmit",
         "compile": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot",
         "compile:linux": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-linux --target=bun-linux-x64",
         "compile:windows": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-windows --target=bun-windows-x64",
