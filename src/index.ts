@@ -1,14 +1,21 @@
 #!/usr/bin/env bun
-import { Command } from "commander";
+import { Command } from "@effect/cli";
+import { BunContext, BunRuntime } from "@effect/platform-bun";
+import { Effect } from "effect";
+import { configCommand } from "@/commands/config";
+import { writeCommand } from "@/commands/write";
 import { version } from "../package.json";
-import { configCommand } from "./commands/config.js";
-import { writeCommand } from "./commands/write.js";
 
-const program = new Command();
+const command = Command.make("jot").pipe(
+    Command.withDescription("AI Research Assistant CLI"),
+    Command.withSubcommands([configCommand, writeCommand]),
+);
 
-program.name("jot").description("AI Research Assistant CLI").version(version);
+const cli = Command.run(command, {
+    name: "jot",
+    version: version,
+});
 
-program.addCommand(configCommand);
-program.addCommand(writeCommand);
+const program = Effect.suspend(() => cli(process.argv));
 
-program.parse();
+program.pipe(Effect.provide(BunContext.layer), BunRuntime.runMain);

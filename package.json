@@ -28,9 +28,12 @@
     },
     "dependencies": {
         "@clack/prompts": "^0.11.0",
+        "@effect/cli": "^0.72.1",
+        "@effect/platform": "^0.93.6",
+        "@effect/platform-bun": "^0.86.0",
         "@openrouter/ai-sdk-provider": "^1.5.0",
         "ai": "^5.0.108",
-        "commander": "^14.0.2",
+        "dedent": "^1.7.0",
         "effect": "^3.19.10",
         "ignore": "^7.0.5",
         "wrap-ansi": "^9.0.2"

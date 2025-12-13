@@ -1,14 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
-import { Command } from "commander";
-import { Cause, Data, Effect, Exit, Schema } from "effect";
-import { ResearchAgent, reasoningOptions } from "../agent.js";
-import { getApiKeySetupMessage, getOpenRouterApiKey } from "../config.js";
-import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "../constants.js";
-import { fitToTerminalWidth, formatWindow } from "../text-utils.js";
-
-class UserCancel extends Data.TaggedError("UserCancel") {}
+import { Args, Command, Options } from "@effect/cli";
+import { Effect, Option } from "effect";
+import { ResearchAgent, reasoningOptions } from "@/agent";
+import { getApiKeySetupMessage, getOpenRouterApiKey } from "@/config";
+import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
+import { UserCancel } from "@/domain/errors";
+import { fitToTerminalWidth, formatWindow } from "@/text-utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
     Effect.tryPromise({
@@ -22,33 +21,42 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
         catch: (e) => (e instanceof UserCancel ? e : new Error(String(e))),
     });
 
-export const writeCommand = new Command("write")
-    .description("Draft and insert research content")
-    .argument("[prompt]", "The writing instruction")
-    .option("-w, --writer <model>", "Model for drafting", DEFAULT_MODEL_WRITER)
-    .option("-r, --reviewer <model>", "Model for reviewing", DEFAULT_MODEL_REVIEWER)
-    .option("--no-reasoning", "Disable reasoning for thinking models")
-    .option(
-        "--reasoning-effort <effort>",
-        "Effort level for reasoning (low, medium, high)",
-        (val) => {
-            try {
-                return Schema.decodeUnknownSync(reasoningOptions)(val);
-            } catch {
-                throw new Error(`Invalid reasoning effort: ${val}`);
-            }
-        },
-        "high",
-    )
-    .action(async (promptArg, options) => {
-        const mainEffect = Effect.gen(function* () {
+export const writeCommand = Command.make(
+    "write",
+    {
+        args: Args.text({ name: "prompt" }).pipe(Args.withDescription("The writing instruction"), Args.optional),
+        options: Options.all({
+            writer: Options.text("writer").pipe(
+                Options.withAlias("w"),
+                Options.withDefault(DEFAULT_MODEL_WRITER),
+                Options.withDescription("Model for drafting"),
+            ),
+            reviewer: Options.text("reviewer").pipe(
+                Options.withAlias("r"),
+                Options.withDefault(DEFAULT_MODEL_REVIEWER),
+                Options.withDescription("Model for reviewing"),
+            ),
+            noReasoning: Options.boolean("no-reasoning").pipe(
+                Options.withDefault(false),
+                Options.withDescription("Disable reasoning for thinking models"),
+            ),
+            reasoningEffort: Options.choice("reasoning-effort", reasoningOptions.literals).pipe(
+                Options.withDefault("high"),
+                Options.withDescription("Effort level for reasoning (low, medium, high)"),
+            ),
+        }),
+    },
+    ({ args: promptArgOption, options }) =>
+        Effect.gen(function* () {
+            const promptArg = Option.getOrUndefined(promptArgOption);
+
             yield* Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`));
 
             // Check for API key first
             const apiKey = yield* Effect.tryPromise(() => getOpenRouterApiKey());
             if (!apiKey) {
                 yield* Effect.sync(() => outro(getApiKeySetupMessage()));
-                return yield* Effect.fail(new Error("API key not configured")); // Exit with error to stop
+                return yield* Effect.fail(new Error("API key not configured"));
             }
 
             let userPrompt = promptArg;
@@ -70,13 +78,13 @@ export const writeCommand = new Command("write")
 
             let currentWindowContent = "";
 
-            // Initialize agent (synchronous but side-effecty constructor)
             const agent = new ResearchAgent({
                 prompt: userPrompt,
                 modelWriter: options.writer,
                 modelReviewer: options.reviewer,
                 openRouterApiKey: apiKey,
-                reasoning: options.reasoning,
+                reasoningEffort: options.reasoningEffort,
+                reasoning: !options.noReasoning,
                 onProgress: (message) => {
                     const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
                     s.stop(stopMsg);
@@ -162,18 +170,13 @@ export const writeCommand = new Command("write")
             }
 
             yield* Effect.sync(() => outro("Done! Happy writing."));
-        });
-
-        const exit = await Effect.runPromiseExit(mainEffect);
-
-        if (Exit.isFailure(exit)) {
-            const error = Cause.squash(exit.cause);
-            if (error instanceof UserCancel) {
-                cancel("Operation cancelled.");
-                process.exit(0);
-            } else {
-                log.error(error instanceof Error ? error.message : String(error));
-            }
-            process.exit(1);
-        }
-    });
+        }).pipe(
+            Effect.catchAll((error) => {
+                if (error instanceof UserCancel) {
+                    cancel("Operation cancelled.");
+                    return Effect.void;
+                }
+                return Effect.fail(error);
+            }),
+        ),
+);
