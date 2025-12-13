@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Schema } from "effect";
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "./constants";
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "./domain/constants.js";
 
 const ConfigSchema = Schema.Struct({
     openRouterApiKey: Schema.optional(Schema.String),

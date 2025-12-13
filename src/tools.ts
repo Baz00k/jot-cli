@@ -4,7 +4,7 @@ import { jsonSchema, tool } from "ai";
 import { Glob } from "bun";
 import { JSONSchema, Schema } from "effect";
 import ignore from "ignore";
-import { EXCERPT_SIZE_KB, MAX_FULL_FILE_SIZE_KB, MAX_LIST_FILE_SIZE_KB } from "./constants";
+import { EXCERPT_SIZE_KB, MAX_FULL_FILE_SIZE_KB, MAX_LIST_FILE_SIZE_KB } from "@/domain/constants";
 
 export const safePath = (p: string) => {
     const resolved = path.resolve(p);

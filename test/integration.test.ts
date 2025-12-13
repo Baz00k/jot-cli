@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ToolCallOptions } from "ai";
-import { listFilesTool, searchFilesTool } from "../src/tools.js";
+import { listFilesTool, searchFilesTool } from "@/tools";
 
 describe("Integration Tests", () => {
     let testDir: string;

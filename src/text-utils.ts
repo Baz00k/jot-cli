@@ -1,5 +1,5 @@
 import wrapAnsi from "wrap-ansi";
-import { STREAM_WINDOW_SIZE } from "./constants";
+import { STREAM_WINDOW_SIZE } from "@/domain/constants";
 
 export const formatWindow = (content: string) => {
     // Replace all whitespace with single spaces to ensure single-line output

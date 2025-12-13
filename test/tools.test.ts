@@ -3,8 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ToolCallOptions } from "ai";
-import { MAX_FULL_FILE_SIZE_KB } from "../src/constants.js";
-import { listFilesTool, readFileTool, safePath, searchFilesTool, writeFileTool } from "../src/tools.js";
+import { MAX_FULL_FILE_SIZE_KB } from "@/domain/constants";
+import { listFilesTool, readFileTool, safePath, searchFilesTool, writeFileTool } from "@/tools";
 
 describe("Tools Module", () => {
     let testDir: string;

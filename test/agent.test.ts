@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ResearchAgent } from "../src/agent.js";
+import { ResearchAgent } from "@/agent";
 
 describe("ResearchAgent", () => {
     let testDir: string;

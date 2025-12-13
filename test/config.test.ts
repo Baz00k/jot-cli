@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getConfigLocation, getOpenRouterApiKey, hasOpenRouterApiKey, setOpenRouterApiKey } from "../src/config.js";
+import { getConfigLocation, getOpenRouterApiKey, hasOpenRouterApiKey, setOpenRouterApiKey } from "@/config";
 
 describe("Config Module", () => {
     let originalHome: string | undefined;
