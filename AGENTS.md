@@ -1,9 +1,11 @@
 # jot-cli - Agent Guidelines
 
-## Build Commands
+## Important Commands
 
 - **Install dependencies**: `bun install`
 - **Run main**: `bun run src/index.ts`
+- **Check (types, linting, formatting)**: `bun check`
+- **Fix auto fixable errors**: `bun check:fix`
 - **Run tests**: `bun test`
 - **Run single test**: `bun test <filename.test.ts>`
 - **Build**: `bun build <entry-file>`
@@ -11,30 +13,26 @@
 
 ## Code Style Guidelines
 
+The code uses Effect TS. When writing code, ensure it follows newest Effect TS conventions and best practices.
+Use Effect for error safety.
+
 ### Runtime & Tools
 
-- Use Bun instead of Node.js/npm/pnpm (per .cursor/rules/)
+- Use Bun instead of Node.js/npm/pnpm
 - Use `bun test` for testing framework
-- Bun automatically loads .env files
 
 ### TypeScript Configuration
 
-- Strict TypeScript enabled with @total-typescript/tsconfig
+- Strict TypeScript enabled
 - ESNext target with bundler module resolution
-- verbatimModuleSyntax: true (use explicit file extensions in imports)
+- verbatimModuleSyntax: true (use explicit type imports)
 - noUncheckedIndexedAccess: true
 
 ### Import Style
 
-- Use explicit file extensions in imports (due to verbatimModuleSyntax)
-- Import external dependencies first, then local modules
-- Use absolute imports where possible
-
-### Error Handling
-
-- Use Zod for runtime validation and schema definitions
-- Implement proper error boundaries in CLI operations
-- Use @clack/prompts for consistent CLI user experience
+- Use explicit type imports (due to verbatimModuleSyntax)
+- Import using relative paths for files in the same directory
+- Import using path aliases everywhere else
 
 ### Naming Conventions
 
