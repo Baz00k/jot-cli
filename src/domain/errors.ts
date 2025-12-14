@@ -18,3 +18,18 @@ export class PromptReadError extends Data.TaggedError("PromptReadError")<{
     readonly cause: unknown;
     readonly message?: string;
 }> {}
+
+export class AgentError extends Data.TaggedError("AgentError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
+export class AgentStreamError extends Data.TaggedError("AgentStreamError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
+export class FileWriteError extends Data.TaggedError("FileWriteError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}

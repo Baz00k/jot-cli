@@ -3,10 +3,10 @@ import * as path from "node:path";
 import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
-import { ResearchAgent, reasoningOptions } from "@/agent";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
+import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
 import { fitToTerminalWidth, formatWindow } from "@/text-utils";
 
@@ -77,35 +77,35 @@ export const writeCommand = Command.make(
                 );
             }
 
+            const agent = yield* Agent;
             const s = spinner();
             yield* Effect.sync(() => s.start("Initializing agent..."));
 
             let currentWindowContent = "";
 
-            const agent = new ResearchAgent({
-                prompt: userPrompt,
-                modelWriter: options.writer,
-                modelReviewer: options.reviewer,
-                openRouterApiKey: apiKey,
-                reasoningEffort: options.reasoningEffort,
-                reasoning: !options.noReasoning,
-                onProgress: (message) => {
-                    const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
-                    s.stop(stopMsg);
-                    log.step(message);
-                    currentWindowContent = "";
-                    s.start("...");
-                },
-                onStream: (chunk) => {
-                    currentWindowContent += chunk;
-                    s.message(formatWindow(currentWindowContent));
-                },
-            });
-
             // Run agent
-            const result = yield* agent.run().pipe(
-                Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))), // Stop spinner on error
-            );
+            const result = yield* agent
+                .run({
+                    prompt: userPrompt,
+                    modelWriter: options.writer,
+                    modelReviewer: options.reviewer,
+                    reasoningEffort: options.reasoningEffort,
+                    reasoning: !options.noReasoning,
+                    onProgress: (message) => {
+                        const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
+                        s.stop(stopMsg);
+                        log.step(message);
+                        currentWindowContent = "";
+                        s.start("...");
+                    },
+                    onStream: (chunk) => {
+                        currentWindowContent += chunk;
+                        s.message(formatWindow(currentWindowContent));
+                    },
+                })
+                .pipe(
+                    Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))), // Stop spinner on error
+                );
 
             yield* Effect.sync(() => s.stop(formatWindow(currentWindowContent)));
 
@@ -169,7 +169,7 @@ export const writeCommand = Command.make(
                 }
 
                 yield* Effect.sync(() => s.start("Saving file..."));
-                yield* Effect.tryPromise(() => agent.executeWrite(filePath, contentToWrite));
+                yield* agent.executeWrite(filePath, contentToWrite);
                 yield* Effect.sync(() => s.stop("File saved successfully!"));
             }
 

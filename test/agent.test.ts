@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ResearchAgent } from "@/agent";
+import { Effect } from "effect";
+import { FileWriteError } from "@/domain/errors";
+import { Agent } from "@/services/agent";
 
-describe("ResearchAgent", () => {
+describe("Agent", () => {
     let testDir: string;
     let originalCwd: string;
 
@@ -23,57 +25,42 @@ describe("ResearchAgent", () => {
         }
     });
 
-    test("creates instance with valid configuration", () => {
-        const agent = new ResearchAgent({
-            prompt: "Test prompt",
-            openRouterApiKey: "test-key",
-            modelWriter: "custom/writer",
-            modelReviewer: "custom/reviewer",
-        });
-
-        expect(agent).toBeDefined();
-    });
-
-    test("creates instance with reasoning option", () => {
-        const agent = new ResearchAgent({
-            prompt: "Test prompt",
-            openRouterApiKey: "test-key",
-            reasoning: false,
-        });
-
-        expect(agent).toBeDefined();
-    });
-
     test("writes content to file within project", async () => {
-        const agent = new ResearchAgent({
-            prompt: "Test",
-            openRouterApiKey: "test-key",
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            yield* agent.executeWrite("output.txt", "test content");
         });
 
-        await agent.executeWrite("output.txt", "test content");
+        await Effect.runPromise(program.pipe(Effect.provide(Agent.Default)));
 
         const written = await fs.readFile(path.join(testDir, "output.txt"), "utf-8");
         expect(written).toBe("test content");
     });
 
     test("creates nested directories when writing files", async () => {
-        const agent = new ResearchAgent({
-            prompt: "Test",
-            openRouterApiKey: "test-key",
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            yield* agent.executeWrite("sections/intro/part1.tex", "content");
         });
 
-        await agent.executeWrite("sections/intro/part1.tex", "content");
+        await Effect.runPromise(program.pipe(Effect.provide(Agent.Default)));
 
         const written = await fs.readFile(path.join(testDir, "sections/intro/part1.tex"), "utf-8");
         expect(written).toBe("content");
     });
 
     test("prevents writing outside project directory", async () => {
-        const agent = new ResearchAgent({
-            prompt: "Test",
-            openRouterApiKey: "test-key",
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            yield* agent.executeWrite("../outside.txt", "content");
         });
 
-        expect(agent.executeWrite("../outside.txt", "content")).rejects.toThrow(/Access denied/i);
+        const result = await Effect.runPromise(program.pipe(Effect.provide(Agent.Default), Effect.either));
+
+        expect(result._tag).toBe("Left");
+        if (result._tag === "Left") {
+            expect(result.left).toBeInstanceOf(FileWriteError);
+            expect(result.left.message).toMatch(/Access denied/i);
+        }
     });
 });
