@@ -13,3 +13,8 @@ export class ConfigDirError extends Data.TaggedError("ConfigDirError")<{
 }> {}
 
 export class UserCancel extends Data.TaggedError("UserCancel") {}
+
+export class PromptReadError extends Data.TaggedError("PromptReadError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}

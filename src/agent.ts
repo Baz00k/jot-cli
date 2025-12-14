@@ -4,6 +4,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
 import { Effect, Schedule, Schema } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
+import { Prompts } from "@/services/prompts.ts";
 import { safePath, tools } from "@/tools";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
@@ -46,27 +47,6 @@ export class ResearchAgent {
         this.prompt = options.prompt;
         this.onProgress = options.onProgress;
         this.onStream = options.onStream;
-    }
-
-    private async getSystemPrompt() {
-        try {
-            const rules = await fs.readFile(path.join(process.cwd(), "ai-rules.md"), "utf-8");
-            return `You are an expert academic research assistant.
-Global Rules:
-${rules}
-
-You have access to the file system.
-1. FIRST, explore the directory to understand the project structure and context using 'list_files', 'read_file', and 'search_files'.
-2. Use 'search_files' to find specific content patterns across the project when needed.
-3. Understand the existing writing style, bibliography, and formatting.
-4. Then, perform the task requested by the user.
-5. If asked to write content, draft it based on the gathered context.
-
-Do NOT include any responses that are not directly related to the task at hand.
-`;
-        } catch (_error) {
-            return "You are an expert academic research assistant.";
-        }
     }
 
     private runStepEffect(params: Parameters<typeof streamText>[0]) {
@@ -113,7 +93,9 @@ Do NOT include any responses that are not directly related to the task at hand.
 
     run() {
         return Effect.gen(this, function* () {
-            const systemPrompt = yield* Effect.tryPromise(() => this.getSystemPrompt());
+            const prompts = yield* Prompts;
+            const writerPrompt = yield* prompts.get("writer");
+            const reviewerPrompt = yield* prompts.get("reviewer");
 
             // Step 1: Draft with Context Gathering (Tools enabled)
             if (this.onProgress) this.onProgress("Gathering context and drafting content...");
@@ -122,7 +104,7 @@ Do NOT include any responses that are not directly related to the task at hand.
                 model: this.writerModel,
                 tools: tools,
                 stopWhen: stepCountIs(MAX_STEP_COUNT),
-                system: systemPrompt,
+                system: writerPrompt,
                 prompt: `Task: ${this.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
             });
 
@@ -131,7 +113,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             // Step 2: Review
             const review = yield* this.runStepEffect({
                 model: this.reviewerModel,
-                system: "You are a strict academic reviewer. Critique the following text for clarity, accuracy, academic tone, and adherence to formatting standards if applicable. Be constructive but rigorous.",
+                system: reviewerPrompt,
                 prompt: `Original Request: ${this.prompt}\n\nDraft to review:\n\n${draft}`,
             });
 
@@ -140,7 +122,7 @@ Do NOT include any responses that are not directly related to the task at hand.
             // Step 3: Refine (without tools to prevent accidental file modifications)
             const finalContent = yield* this.runStepEffect({
                 model: this.writerModel,
-                system: systemPrompt,
+                system: writerPrompt,
                 prompt: `Original Task: ${this.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
             });
 
