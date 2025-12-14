@@ -6,7 +6,6 @@ import { configCommand } from "@/commands/config";
 import { writeCommand } from "@/commands/write";
 import { Agent } from "@/services/agent";
 import { Config } from "@/services/config";
-import { Prompts } from "@/services/prompts";
 import { version } from "../package.json";
 
 const command = Command.make("jot").pipe(
@@ -21,6 +20,6 @@ const cli = Command.run(command, {
 
 const program = Effect.suspend(() => cli(process.argv));
 
-const MainLayer = Layer.mergeAll(Agent.Default, Config.Default, Prompts.Default, BunContext.layer);
+const MainLayer = Layer.mergeAll(Agent.Default, Config.Default, BunContext.layer);
 
 program.pipe(Effect.provide(MainLayer), BunRuntime.runMain);

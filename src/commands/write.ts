@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
@@ -83,36 +83,56 @@ export const writeCommand = Command.make(
 
             let currentWindowContent = "";
 
-            // Run agent
-            const result = yield* agent
-                .run({
-                    prompt: userPrompt,
-                    modelWriter: options.writer,
-                    modelReviewer: options.reviewer,
-                    reasoningEffort: options.reasoningEffort,
-                    reasoning: !options.noReasoning,
-                    onProgress: (message) => {
-                        const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
-                        s.stop(stopMsg);
-                        log.step(message);
-                        currentWindowContent = "";
-                        s.start("...");
-                    },
-                    onStream: (chunk) => {
-                        currentWindowContent += chunk;
-                        s.message(formatWindow(currentWindowContent));
-                    },
-                })
-                .pipe(
-                    Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))), // Stop spinner on error
-                );
+            const { events, result } = yield* agent.run({
+                prompt: userPrompt,
+                modelWriter: options.writer,
+                modelReviewer: options.reviewer,
+                reasoningEffort: options.reasoningEffort,
+                reasoning: !options.noReasoning,
+            });
+
+            // Process events in the background
+            const eventProcessor = yield* events.pipe(
+                Stream.runForEach((event) =>
+                    Effect.sync(() => {
+                        switch (event._tag) {
+                            case "ProgressUpdate": {
+                                const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
+                                s.stop(stopMsg);
+                                log.step(event.message);
+                                currentWindowContent = "";
+                                s.start("...");
+                                break;
+                            }
+                            case "StreamChunk": {
+                                currentWindowContent += event.content;
+                                s.message(formatWindow(currentWindowContent));
+                                break;
+                            }
+                        }
+                    }),
+                ),
+                Effect.fork,
+            );
+
+            const agentResult = yield* result.pipe(
+                Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))),
+            );
+
+            // Wait for event processing to complete
+            yield* Fiber.join(eventProcessor);
 
             yield* Effect.sync(() => s.stop(formatWindow(currentWindowContent)));
 
+            // Display each step result
             yield* Effect.sync(() => {
-                note(fitToTerminalWidth(`${result.draft.slice(0, 500)}...`), "Initial Draft (Snippet)");
-                note(fitToTerminalWidth(`${result.review.slice(0, 500)}...`), "Reviewer Feedback (Snippet)");
-                note(fitToTerminalWidth(result.finalContent), "Final Refined Content");
+                for (const step of agentResult.steps) {
+                    const snippet = step.content.slice(0, 500);
+                    const displayText = snippet.length < step.content.length ? `${snippet}...` : snippet;
+                    note(fitToTerminalWidth(displayText), `${step.stepName} (Snippet)`);
+                }
+
+                note(fitToTerminalWidth(agentResult.finalContent), "Final Content");
             });
 
             const shouldSave = yield* runPrompt(() =>
@@ -144,7 +164,7 @@ export const writeCommand = Command.make(
                     catch: () => false,
                 });
 
-                let contentToWrite = result.finalContent;
+                let contentToWrite = agentResult.finalContent;
 
                 if (fileExists) {
                     const action = yield* runPrompt(() =>
@@ -163,7 +183,7 @@ export const writeCommand = Command.make(
                             catch: () => null,
                         });
                         if (current) {
-                            contentToWrite = `${current}\n\n${result.finalContent}`;
+                            contentToWrite = `${current}\n\n${agentResult.finalContent}`;
                         }
                     }
                 }

@@ -2,7 +2,7 @@ import { FileSystem, Path } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel, stepCountIs, streamText } from "ai";
-import { Effect, Schedule, Schema } from "effect";
+import { Effect, Fiber, Queue, Schedule, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import { AgentStreamError, FileWriteError } from "@/domain/errors";
 import { Config } from "@/services/config";
@@ -11,21 +11,95 @@ import { tools } from "@/tools";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
+export interface WorkflowStep {
+    readonly id: string;
+    readonly name: string;
+    readonly description: string;
+    readonly modelType: "writer" | "reviewer";
+    readonly enableTools: boolean;
+    readonly promptTemplate: (context: WorkflowContext) => string;
+}
+
+export interface WorkflowContext {
+    readonly userPrompt: string;
+    readonly stepResults: ReadonlyMap<string, string>;
+}
+
+export type AgentEvent =
+    | {
+          readonly _tag: "ProgressUpdate";
+          readonly message: string;
+          readonly stepId: string;
+          readonly stepName: string;
+          readonly stepNumber: number;
+          readonly totalSteps: number;
+      }
+    | {
+          readonly _tag: "StreamChunk";
+          readonly content: string;
+          readonly stepId: string;
+      }
+    | {
+          readonly _tag: "StepComplete";
+          readonly stepId: string;
+          readonly stepName: string;
+          readonly content: string;
+      };
+
 export interface RunOptions {
     prompt: string;
     modelWriter?: string;
     modelReviewer?: string;
     reasoning?: boolean;
     reasoningEffort?: Schema.Schema.Type<typeof reasoningOptions>;
-    onProgress?: (message: string) => void;
-    onStream?: (chunk: string) => void;
+    workflow?: ReadonlyArray<WorkflowStep>;
+}
+
+export interface StepResult {
+    readonly stepId: string;
+    readonly stepName: string;
+    readonly content: string;
 }
 
 export interface RunResult {
-    draft: string;
-    review: string;
-    finalContent: string;
+    readonly steps: ReadonlyArray<StepResult>;
+    readonly finalContent: string;
 }
+
+const createDefaultWorkflow = (): ReadonlyArray<WorkflowStep> => [
+    {
+        id: "draft",
+        name: "Draft",
+        description: "Gathering context and drafting content",
+        modelType: "writer",
+        enableTools: true,
+        promptTemplate: ({ userPrompt }) =>
+            `Task: ${userPrompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
+    },
+    {
+        id: "review",
+        name: "Review",
+        description: "Reviewing content",
+        modelType: "reviewer",
+        enableTools: false,
+        promptTemplate: ({ userPrompt, stepResults }) => {
+            const draft = stepResults.get("draft") ?? "";
+            return `Original Request: ${userPrompt}\n\nDraft to review:\n\n${draft}`;
+        },
+    },
+    {
+        id: "refine",
+        name: "Refine",
+        description: "Refining content based on review",
+        modelType: "writer",
+        enableTools: false,
+        promptTemplate: ({ userPrompt, stepResults }) => {
+            const draft = stepResults.get("draft") ?? "";
+            const review = stepResults.get("review") ?? "";
+            return `Original Task: ${userPrompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`;
+        },
+    },
+];
 
 const createModel = (
     apiKey: string,
@@ -42,22 +116,32 @@ const createModel = (
     });
 };
 
-const runStep = (params: Parameters<typeof streamText>[0], onStream?: (chunk: string) => void) =>
-    Effect.tryPromise({
-        try: async () => {
-            const result = streamText(params);
+const runStep = (params: Parameters<typeof streamText>[0], eventQueue: Queue.Queue<AgentEvent>, stepId: string) =>
+    Effect.gen(function* () {
+        const result = yield* Effect.tryPromise({
+            try: async () => {
+                const result = streamText(params);
 
-            for await (const chunk of result.textStream) {
-                onStream?.(chunk);
-            }
+                for await (const chunk of result.textStream) {
+                    await Effect.runPromise(
+                        Queue.offer(eventQueue, {
+                            _tag: "StreamChunk",
+                            content: chunk,
+                            stepId,
+                        } as const),
+                    );
+                }
 
-            const text = await result.text;
-            if (!text || text.trim().length === 0) {
-                throw new Error("Generation failed: Empty response received.");
-            }
-            return text;
-        },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+                const text = await result.text;
+                if (!text || text.trim().length === 0) {
+                    throw new Error("Generation failed: Empty response received.");
+                }
+                return text;
+            },
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+
+        return result;
     }).pipe(
         Effect.retry({
             schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
@@ -129,49 +213,81 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         reasoningEffort,
                     );
 
-                    // Step 1: Draft with Context Gathering (Tools enabled)
-                    options.onProgress?.("Gathering context and drafting content...");
+                    const workflow = options.workflow ?? createDefaultWorkflow();
+                    const totalSteps = workflow.length;
 
-                    const draft = yield* runStep(
-                        {
-                            model: writerModel,
-                            tools: tools,
-                            stopWhen: stepCountIs(MAX_STEP_COUNT),
-                            system: writerPrompt,
-                            prompt: `Task: ${options.prompt}\n\nPlease draft the requested content. If you need to modify files, do NOT do it yet. Just return the drafted content in your final response.`,
-                        },
-                        options.onStream,
-                    );
+                    const eventQueue = yield* Queue.unbounded<AgentEvent>();
 
-                    options.onProgress?.("Draft complete. Reviewing content...");
+                    const workflowFiber = yield* Effect.gen(function* () {
+                        const stepResults = new Map<string, string>();
+                        const results: Array<StepResult> = [];
 
-                    // Step 2: Review
-                    const review = yield* runStep(
-                        {
-                            model: reviewerModel,
-                            system: reviewerPrompt,
-                            prompt: `Original Request: ${options.prompt}\n\nDraft to review:\n\n${draft}`,
-                        },
-                        options.onStream,
-                    );
+                        for (let i = 0; i < workflow.length; i++) {
+                            const step = workflow[i];
+                            if (!step) continue;
 
-                    options.onProgress?.("Review complete. Refining content...");
+                            const stepNumber = i + 1;
 
-                    // Step 3: Refine (without tools to prevent accidental file modifications)
-                    const finalContent = yield* runStep(
-                        {
-                            model: writerModel,
-                            system: writerPrompt,
-                            prompt: `Original Task: ${options.prompt}\n\nOriginal Draft:\n${draft}\n\nReviewer Comments:\n${review}\n\nPlease rewrite the draft to address the reviewer's comments. Provide the FINAL improved text.`,
-                        },
-                        options.onStream,
-                    );
+                            yield* Queue.offer(eventQueue, {
+                                _tag: "ProgressUpdate",
+                                message: step.description,
+                                stepId: step.id,
+                                stepName: step.name,
+                                stepNumber,
+                                totalSteps,
+                            } as const);
+
+                            const model = step.modelType === "writer" ? writerModel : reviewerModel;
+                            const systemPrompt = step.modelType === "writer" ? writerPrompt : reviewerPrompt;
+
+                            const context: WorkflowContext = {
+                                userPrompt: options.prompt,
+                                stepResults,
+                            };
+
+                            const prompt = step.promptTemplate(context);
+
+                            const content = yield* runStep(
+                                {
+                                    model,
+                                    tools: step.enableTools ? tools : undefined,
+                                    stopWhen: step.enableTools ? stepCountIs(MAX_STEP_COUNT) : undefined,
+                                    system: systemPrompt,
+                                    prompt,
+                                },
+                                eventQueue,
+                                step.id,
+                            );
+
+                            stepResults.set(step.id, content);
+                            results.push({
+                                stepId: step.id,
+                                stepName: step.name,
+                                content,
+                            });
+
+                            yield* Queue.offer(eventQueue, {
+                                _tag: "StepComplete",
+                                stepId: step.id,
+                                stepName: step.name,
+                                content,
+                            } as const);
+                        }
+
+                        yield* Queue.shutdown(eventQueue);
+
+                        const finalContent = results[results.length - 1]?.content ?? "";
+
+                        return {
+                            steps: results,
+                            finalContent,
+                        } satisfies RunResult;
+                    }).pipe(Effect.fork);
 
                     return {
-                        draft,
-                        review,
-                        finalContent,
-                    } satisfies RunResult;
+                        events: Stream.fromQueue(eventQueue),
+                        result: Fiber.join(workflowFiber),
+                    };
                 }),
 
             executeWrite: (filePath: string, content: string) =>
@@ -214,5 +330,4 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
         };
     }),
     dependencies: [Prompts.Default, Config.Default, BunContext.layer],
-    accessors: true,
 }) {}
