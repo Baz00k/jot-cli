@@ -1,20 +1,12 @@
 import { FileSystem, Path } from "@effect/platform";
-import { Context, Effect, Layer, Ref, Schema } from "effect";
+import { BunContext } from "@effect/platform-bun";
+import { Effect, Ref, Schema } from "effect";
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from "@/domain/constants";
 import { ConfigDirError, ConfigReadError, ConfigWriteError } from "@/domain/errors";
 
 export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     openRouterApiKey: Schema.optional(Schema.String),
 }) {}
-
-export class Config extends Context.Tag("services/config")<
-    Config,
-    {
-        readonly get: Effect.Effect<UserConfig>;
-        readonly update: (patch: Partial<UserConfig>) => Effect.Effect<void, ConfigWriteError | ConfigDirError>;
-        readonly location: string;
-    }
->() {}
 
 const getConfigDir = Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -39,9 +31,8 @@ const getConfigPath = Effect.gen(function* () {
     return path.join(dir, CONFIG_FILE_NAME);
 });
 
-export const ConfigLive = Layer.effect(
-    Config,
-    Effect.gen(function* () {
+export class Config extends Effect.Service<Config>()("services/config", {
+    effect: Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const configPath = yield* getConfigPath;
@@ -54,8 +45,7 @@ export const ConfigLive = Layer.effect(
                 }
                 return Effect.fail(new ConfigReadError({ cause: error }));
             }),
-            Effect.catchTag("BadArgument", (error) => Effect.fail(new ConfigReadError({ cause: error }))),
-            Effect.catchTag("ParseError", (error) => Effect.fail(new ConfigReadError({ cause: error }))),
+            Effect.catchAllCause((cause) => Effect.fail(new ConfigReadError({ cause }))),
         );
 
         const configRef = yield* Ref.make(initialConfig);
@@ -82,4 +72,6 @@ export const ConfigLive = Layer.effect(
             location: configPath,
         };
     }),
-);
+    dependencies: [BunContext.layer],
+    accessors: true,
+}) {}

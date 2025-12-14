@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { BunContext } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
-import { Config, ConfigLive } from "@/services/config";
+import { Effect } from "effect";
+import { Config } from "@/services/config";
 
 describe("Config Module", () => {
     let originalHome: string | undefined;
@@ -48,51 +47,49 @@ describe("Config Module", () => {
         }
     });
 
-    // Provide the Config service, with its dependencies satisfied by BunContext
-    const MainLayer = ConfigLive.pipe(Layer.provide(BunContext.layer));
+    test("returns correct config path for platform", async () => {
+        const program = Effect.gen(function* () {
+            const config = yield* Config;
+            expect(config.location).toContain("jot-cli");
+            expect(config.location).toContain("config.json");
+        }).pipe(Effect.provide(Config.Default));
 
-    const runWithConfig = <A, E>(effect: Effect.Effect<A, E, Config>) =>
-        Effect.runPromise(Effect.provide(effect, MainLayer));
+        await Effect.runPromise(program);
+    });
 
-    test("returns correct config path for platform", () =>
-        runWithConfig(
-            Effect.gen(function* () {
-                const config = yield* Config;
-                expect(config.location).toContain("jot-cli");
-                expect(config.location).toContain("config.json");
-            }),
-        ));
+    test("stores and retrieves API key", async () => {
+        const program = Effect.gen(function* () {
+            const testKey = "sk-or-v1-test-key";
+            const config = yield* Config;
+            yield* config.update({ openRouterApiKey: testKey });
 
-    test("stores and retrieves API key", () =>
-        runWithConfig(
-            Effect.gen(function* () {
-                const testKey = "sk-or-v1-test-key";
-                const config = yield* Config;
-                yield* config.update({ openRouterApiKey: testKey });
+            const userConfig = yield* config.get;
+            expect(userConfig.openRouterApiKey).toBe(testKey);
+        }).pipe(Effect.provide(Config.Default));
 
-                const userConfig = yield* config.get;
-                expect(userConfig.openRouterApiKey).toBe(testKey);
-            }),
-        ));
+        await Effect.runPromise(program);
+    });
 
-    test("detects when API key is not set", () =>
-        runWithConfig(
-            Effect.gen(function* () {
-                const config = yield* Config;
-                const userConfig = yield* config.get;
-                expect(userConfig.openRouterApiKey).toBeUndefined();
-            }),
-        ));
+    test("detects when API key is not set", async () => {
+        const program = Effect.gen(function* () {
+            const config = yield* Config;
+            const userConfig = yield* config.get;
+            expect(userConfig.openRouterApiKey).toBeUndefined();
+        }).pipe(Effect.provide(Config.Default));
 
-    test("updates existing API key", () =>
-        runWithConfig(
-            Effect.gen(function* () {
-                const config = yield* Config;
-                yield* config.update({ openRouterApiKey: "first-key" });
-                yield* config.update({ openRouterApiKey: "second-key" });
+        await Effect.runPromise(program);
+    });
 
-                const userConfig = yield* config.get;
-                expect(userConfig.openRouterApiKey).toBe("second-key");
-            }),
-        ));
+    test("updates existing API key", async () => {
+        const program = Effect.gen(function* () {
+            const config = yield* Config;
+            yield* config.update({ openRouterApiKey: "first-key" });
+            yield* config.update({ openRouterApiKey: "second-key" });
+
+            const userConfig = yield* config.get;
+            expect(userConfig.openRouterApiKey).toBe("second-key");
+        }).pipe(Effect.provide(Config.Default));
+
+        await Effect.runPromise(program);
+    });
 });
