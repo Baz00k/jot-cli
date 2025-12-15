@@ -33,3 +33,14 @@ export class FileWriteError extends Data.TaggedError("FileWriteError")<{
     readonly cause: unknown;
     readonly message?: string;
 }> {}
+
+export class MaxIterationsReached extends Data.TaggedError("MaxIterationsReached")<{
+    readonly iterations: number;
+    readonly lastDraft?: string;
+}> {}
+
+export class AgentLoopError extends Data.TaggedError("AgentLoopError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+    readonly phase: "drafting" | "reviewing" | "user_feedback";
+}> {}

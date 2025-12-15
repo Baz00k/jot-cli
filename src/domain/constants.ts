@@ -10,3 +10,6 @@ export const MAX_LIST_FILE_SIZE_KB = 1024 * 1024;
 export const EXCERPT_SIZE_KB = 40 * 1024;
 
 export const STREAM_WINDOW_SIZE = 80;
+
+/** Default maximum iterations for the autonomous agent loop */
+export const DEFAULT_MAX_AGENT_ITERATIONS = 10;

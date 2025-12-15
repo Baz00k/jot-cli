@@ -4,8 +4,9 @@ import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, te
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
-import { UserCancel } from "@/domain/errors";
+import { MaxIterationsReached, UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
+import type { AgentEvent, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
 import { fitToTerminalWidth, formatWindow } from "@/text-utils";
@@ -20,6 +21,65 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
             return result as T;
         },
         catch: (e) => (e instanceof UserCancel ? e : new Error(String(e))),
+    });
+
+/**
+ * Handle user feedback when AI review approves the draft.
+ * Returns the user's decision to approve or request changes.
+ */
+const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction, UserCancel | Error> =>
+    Effect.gen(function* () {
+        // Show draft preview
+        const preview = draft.length > 1000 ? `${draft.slice(0, 1000)}...` : draft;
+        yield* Effect.sync(() => note(fitToTerminalWidth(preview), `Draft (Cycle ${cycle}) - Preview`));
+
+        const action = yield* runPrompt(() =>
+            select({
+                message: "AI review approved this draft. What would you like to do?",
+                options: [
+                    { value: "approve", label: "Approve and finalize" },
+                    { value: "reject", label: "Request changes" },
+                    { value: "view", label: "View full draft" },
+                ],
+            }),
+        );
+
+        if (action === "view") {
+            yield* Effect.sync(() => note(fitToTerminalWidth(draft), "Full Draft"));
+            // Re-prompt after viewing
+            const finalAction = yield* runPrompt(() =>
+                select({
+                    message: "What would you like to do with this draft?",
+                    options: [
+                        { value: "approve", label: "Approve and finalize" },
+                        { value: "reject", label: "Request changes" },
+                    ],
+                }),
+            );
+
+            if (finalAction === "reject") {
+                const comment = yield* runPrompt(() =>
+                    text({
+                        message: "What changes would you like?",
+                        placeholder: "e.g., Make the tone more formal, add more examples...",
+                    }),
+                );
+                return { type: "reject" as const, comment };
+            }
+            return { type: "approve" as const };
+        }
+
+        if (action === "reject") {
+            const comment = yield* runPrompt(() =>
+                text({
+                    message: "What changes would you like?",
+                    placeholder: "e.g., Make the tone more formal, add more examples...",
+                }),
+            );
+            return { type: "reject" as const, comment };
+        }
+
+        return { type: "approve" as const };
     });
 
 export const writeCommand = Command.make(
@@ -45,6 +105,11 @@ export const writeCommand = Command.make(
                 Options.withDefault("high"),
                 Options.withDescription("Effort level for reasoning (low, medium, high)"),
             ),
+            maxIterations: Options.integer("max-iterations").pipe(
+                Options.withAlias("i"),
+                Options.withDefault(10),
+                Options.withDescription("Maximum revision cycles (default: 10)"),
+            ),
         }),
     },
     ({ args: promptArgOption, options }) =>
@@ -52,7 +117,7 @@ export const writeCommand = Command.make(
             const config = yield* Config;
             const promptArg = Option.getOrUndefined(promptArgOption);
 
-            yield* Effect.sync(() => intro(`📝 Jot CLI - AI Research Assistant`));
+            yield* Effect.sync(() => intro(`Jot CLI - AI Research Assistant`));
 
             // Check for API key first
             const userConfig = yield* config.get;
@@ -83,56 +148,104 @@ export const writeCommand = Command.make(
 
             let currentWindowContent = "";
 
-            const { events, result } = yield* agent.run({
+            const agentSession = yield* agent.run({
                 prompt: userPrompt,
                 modelWriter: options.writer,
                 modelReviewer: options.reviewer,
                 reasoningEffort: options.reasoningEffort,
                 reasoning: !options.noReasoning,
+                maxIterations: options.maxIterations,
             });
 
-            // Process events in the background
-            const eventProcessor = yield* events.pipe(
-                Stream.runForEach((event) =>
-                    Effect.sync(() => {
-                        switch (event._tag) {
-                            case "ProgressUpdate": {
-                                const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
+            // Process events - handle user action requests inline
+            const processEvent = (event: AgentEvent) =>
+                Effect.gen(function* () {
+                    switch (event._tag) {
+                        case "Progress": {
+                            const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
+                            yield* Effect.sync(() => {
                                 s.stop(stopMsg);
-                                log.step(event.message);
+                                log.step(`[Cycle ${event.cycle}] ${event.message}`);
                                 currentWindowContent = "";
                                 s.start("...");
-                                break;
+                            });
+                            break;
+                        }
+                        case "StreamChunk": {
+                            currentWindowContent += event.content;
+                            yield* Effect.sync(() => s.message(formatWindow(currentWindowContent)));
+                            break;
+                        }
+                        case "DraftComplete": {
+                            yield* Effect.sync(() => {
+                                s.stop(formatWindow(currentWindowContent));
+                                log.success(`Draft complete (Cycle ${event.cycle})`);
+                                currentWindowContent = "";
+                            });
+                            break;
+                        }
+                        case "ReviewComplete": {
+                            yield* Effect.sync(() => {
+                                if (event.approved) {
+                                    log.success(`AI review approved (Cycle ${event.cycle})`);
+                                } else {
+                                    log.warn(`AI review rejected (Cycle ${event.cycle})`);
+                                    if (event.critique) {
+                                        note(fitToTerminalWidth(event.critique), "AI Critique");
+                                    }
+                                }
+                            });
+                            break;
+                        }
+                        case "UserActionRequired": {
+                            // Stop spinner and get user feedback
+                            yield* Effect.sync(() => s.stop("Awaiting your review..."));
+
+                            const userAction = yield* getUserFeedback(event.draft, event.cycle);
+
+                            // Submit the action back to the agent
+                            yield* agentSession.submitUserAction(userAction);
+
+                            if (userAction.type === "reject") {
+                                yield* Effect.sync(() => s.start("Processing your feedback..."));
                             }
-                            case "StreamChunk": {
-                                currentWindowContent += event.content;
-                                s.message(formatWindow(currentWindowContent));
-                                break;
-                            }
+                            break;
+                        }
+                        case "IterationLimitReached": {
+                            yield* Effect.sync(() => {
+                                s.stop("Iteration limit reached");
+                                log.warn(`Maximum iterations (${event.iterations}) reached.`);
+                            });
+                            break;
+                        }
+                    }
+                });
+
+            // Process events in the background
+            const eventProcessor = yield* agentSession.events.pipe(Stream.runForEach(processEvent), Effect.fork);
+
+            // Wait for the result
+            const agentResult = yield* agentSession.result.pipe(
+                Effect.tapError((error) =>
+                    Effect.sync(() => {
+                        s.stop("An error occurred");
+                        if (error instanceof MaxIterationsReached && error.lastDraft) {
+                            note(
+                                fitToTerminalWidth(`${error.lastDraft.slice(0, 500)}...`),
+                                "Last Draft (before iteration limit)",
+                            );
                         }
                     }),
                 ),
-                Effect.fork,
-            );
-
-            const agentResult = yield* result.pipe(
-                Effect.tapError(() => Effect.sync(() => s.stop("An error occurred"))),
             );
 
             // Wait for event processing to complete
             yield* Fiber.join(eventProcessor);
 
-            yield* Effect.sync(() => s.stop(formatWindow(currentWindowContent)));
-
-            // Display each step result
             yield* Effect.sync(() => {
-                for (const step of agentResult.steps) {
-                    const snippet = step.content.slice(0, 500);
-                    const displayText = snippet.length < step.content.length ? `${snippet}...` : snippet;
-                    note(fitToTerminalWidth(displayText), `${step.stepName} (Snippet)`);
-                }
-
+                s.stop("Workflow complete");
                 note(fitToTerminalWidth(agentResult.finalContent), "Final Content");
+                log.info(`Completed in ${agentResult.iterations} cycle(s)`);
             });
 
             const shouldSave = yield* runPrompt(() =>
@@ -198,6 +311,10 @@ export const writeCommand = Command.make(
             Effect.catchAll((error) => {
                 if (error instanceof UserCancel) {
                     cancel("Operation cancelled.");
+                    return Effect.void;
+                }
+                if (error instanceof MaxIterationsReached) {
+                    // Already handled in tapError above
                     return Effect.void;
                 }
                 return Effect.fail(error);
