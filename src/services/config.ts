@@ -2,7 +2,7 @@ import { FileSystem, Path } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { Effect, Ref, Schema } from "effect";
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_MAX_AGENT_ITERATIONS } from "@/domain/constants";
-import { ConfigDirError, ConfigReadError, ConfigWriteError } from "@/domain/errors";
+import { ConfigReadError, ConfigWriteError } from "@/domain/errors";
 
 export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     openRouterApiKey: Schema.optional(Schema.String),
@@ -10,21 +10,25 @@ export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     agentMaxIterations: Schema.optionalWith(Schema.Number, { default: () => DEFAULT_MAX_AGENT_ITERATIONS }),
 }) {}
 
-const getConfigDir = Effect.gen(function* () {
+export const getConfigDir = Effect.gen(function* () {
     const path = yield* Path.Path;
+    const configDir = process.env.XDG_CONFIG_HOME ?? process.env.APPDATA;
+
+    if (configDir) {
+        return path.join(configDir, CONFIG_DIR_NAME);
+    }
+
     const homeDir = process.env.HOME ?? process.env.USERPROFILE;
 
-    if (!homeDir) {
-        return yield* Effect.fail(new ConfigDirError({ cause: "Could not determine home directory" }));
+    if (homeDir) {
+        if (process.platform === "win32") {
+            return path.join(homeDir, "AppData", "Roaming", CONFIG_DIR_NAME);
+        }
+
+        return path.join(homeDir, ".config", CONFIG_DIR_NAME);
     }
 
-    if (process.platform === "win32") {
-        const appData = process.env.APPDATA || path.join(homeDir, "AppData", "Roaming");
-        return path.join(appData, CONFIG_DIR_NAME);
-    }
-
-    const configHome = process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config");
-    return path.join(configHome, CONFIG_DIR_NAME);
+    return yield* Effect.fail("Could not determine home directory");
 });
 
 const getConfigPath = Effect.gen(function* () {
