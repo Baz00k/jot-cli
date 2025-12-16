@@ -1,3 +1,8 @@
+import { FileSystem, Path } from "@effect/platform";
+import { BunContext } from "@effect/platform-bun";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { generateObject, jsonSchema, type LanguageModel, stepCountIs, streamText } from "ai";
+import { Deferred, Effect, Fiber, JSONSchema, Option, Queue, Ref, Schedule, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import {
     AgentLoopError,
@@ -11,11 +16,6 @@ import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowSt
 import { Config } from "@/services/config";
 import { Prompts } from "@/services/prompts";
 import { tools } from "@/tools";
-import { FileSystem, Path } from "@effect/platform";
-import { BunContext } from "@effect/platform-bun";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateObject, jsonSchema, type LanguageModel, stepCountIs, streamText } from "ai";
-import { Deferred, Effect, Fiber, JSONSchema, Option, Queue, Ref, Schedule, Schema, Stream } from "effect";
 
 // Create JSON schema for AI SDK from Effect Schema
 const reviewResultJsonSchema = jsonSchema<Schema.Schema.Type<typeof ReviewResult>>(JSONSchema.make(ReviewResult));
