@@ -104,12 +104,13 @@ describe("CLI Integration", () => {
     test("handles invalid commands gracefully", async () => {
         const result = await $`bun run src/index.ts invalid-command`.nothrow().quiet();
         expect(result.exitCode).toBe(0);
+        expect(result.stdout.toString()).toContain("USAGE");
     });
 
     test("handles invalid subcommand gracefully", async () => {
         const result = await $`bun run src/index.ts config invalid-subcommand`.nothrow().quiet();
         expect(result.exitCode).not.toBe(0);
-        expect(result.stdout.toString()).toContain("Invalid subcommand");
+        expect(result.stderr.toString()).toContain("Invalid subcommand");
     });
 
     test("config file is valid JSON with proper formatting", async () => {

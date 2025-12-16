@@ -60,7 +60,8 @@ describe("Agent", () => {
         expect(result._tag).toBe("Left");
         if (result._tag === "Left") {
             expect(result.left).toBeInstanceOf(FileWriteError);
-            expect(result.left.message).toMatch(/Access denied/i);
+            const error = result.left as FileWriteError;
+            expect(error.message).toMatch(/Access denied/i);
         }
     });
 });
