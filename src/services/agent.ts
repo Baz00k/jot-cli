@@ -1,5 +1,12 @@
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
-import { AgentLoopError, AgentStreamError, FileWriteError, MaxIterationsReached, UserCancel } from "@/domain/errors";
+import {
+    AgentLoopError,
+    AgentStreamError,
+    FileWriteError,
+    MaxIterationsReached,
+    NoUserActionPending,
+    UserCancel,
+} from "@/domain/errors";
 import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowState } from "@/domain/workflow";
 import { Config } from "@/services/config";
 import { Prompts } from "@/services/prompts";
@@ -418,12 +425,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             return newContent;
                         });
 
-                    // Fork the workflow
-                    const workflowFiber = yield* step().pipe(
-                        Effect.tap(() => Queue.shutdown(eventQueue)),
-                        Effect.tapError(() => Queue.shutdown(eventQueue)),
-                        Effect.fork,
-                    );
+                    // Fork the workflow with guaranteed queue shutdown
+                    const workflowFiber = yield* step().pipe(Effect.ensuring(Queue.shutdown(eventQueue)), Effect.fork);
 
                     return {
                         events: Stream.fromQueue(eventQueue),
@@ -437,17 +440,32 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             } satisfies RunResult;
                         }),
                         /**
-                         * Submit user action to continue the workflow
+                         * Submit user action to continue the workflow.
                          */
                         submitUserAction: (action: UserAction) =>
                             Effect.gen(function* () {
                                 const deferred = yield* Ref.get(userActionDeferred);
-                                if (deferred) {
-                                    yield* Deferred.succeed(deferred, action);
+                                if (!deferred) {
+                                    return yield* Effect.fail(
+                                        new NoUserActionPending({
+                                            message:
+                                                "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
+                                        }),
+                                    );
                                 }
+                                // Check if deferred is already done
+                                const isDone = yield* Deferred.isDone(deferred);
+                                if (isDone) {
+                                    return yield* Effect.fail(
+                                        new NoUserActionPending({
+                                            message: "User action was already submitted for this cycle.",
+                                        }),
+                                    );
+                                }
+                                yield* Deferred.succeed(deferred, action);
                             }),
                         /**
-                         * Cancel the workflow
+                         * Cancel the workflow and cleanup resources
                          */
                         cancel: () =>
                             Effect.gen(function* () {
@@ -456,6 +474,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     yield* Deferred.fail(deferred, new UserCancel());
                                 }
                                 yield* Fiber.interrupt(workflowFiber);
+                                // Ensure queue is shutdown even if ensuring didn't run due to interruption
+                                yield* Queue.shutdown(eventQueue);
                             }),
                     };
                 }),

@@ -44,3 +44,7 @@ export class AgentLoopError extends Data.TaggedError("AgentLoopError")<{
     readonly message?: string;
     readonly phase: "drafting" | "reviewing" | "user_feedback";
 }> {}
+
+export class NoUserActionPending extends Data.TaggedError("NoUserActionPending")<{
+    readonly message?: string;
+}> {}

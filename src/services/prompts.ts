@@ -1,4 +1,4 @@
-import { FileSystem } from "@effect/platform/FileSystem";
+import { FileSystem } from "@effect/platform";
 import { BunFileSystem } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { PromptReadError } from "@/domain/errors";
@@ -29,7 +29,7 @@ export interface ReviewerTaskInput {
 
 export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     effect: Effect.gen(function* () {
-        const fs = yield* FileSystem;
+        const fs = yield* FileSystem.FileSystem;
 
         // Load raw prompt templates
         const loadRaw = (promptType: PromptType) =>

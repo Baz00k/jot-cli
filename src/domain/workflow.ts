@@ -100,20 +100,22 @@ export class WorkflowState extends Data.Class<{
     }
 
     /**
-     * Check if the workflow has been approved (either by AI or user)
+     * Check if the workflow has been approved (either by AI review or user).
      */
-    get isApproved(): boolean {
-        const lastEvent = Chunk.last(this.history);
-        return Option.match(lastEvent, {
-            onNone: () => false,
-            onSome: (e) => {
-
-                if (e._tag === "ReviewCompleted") return e.approved;
-                if (e._tag === "UserFeedback") return e.action === "approve";
-                return false;
-            },
-        });
-    }
+     get isApproved(): boolean {
+         const lastEvent = Chunk.findLast(
+             this.history,
+             (e): e is ReviewCompleted | UserFeedback => e._tag === "ReviewCompleted" || e._tag === "UserFeedback",
+         );
+         return Option.match(lastEvent, {
+             onNone: () => false,
+             onSome: (e) => {
+                 if (e._tag === "ReviewCompleted") return e.approved;
+                 if (e._tag === "UserFeedback") return e.action === "approve";
+                 return false;
+             },
+         });
+     }
 
     /**
      * Returns a NEW state instance with the event appended

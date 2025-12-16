@@ -1,8 +1,8 @@
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_MAX_AGENT_ITERATIONS } from "@/domain/constants";
-import { ConfigDirError, ConfigReadError, ConfigWriteError } from "@/domain/errors";
 import { FileSystem, Path } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { Effect, Ref, Schema } from "effect";
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_MAX_AGENT_ITERATIONS } from "@/domain/constants";
+import { ConfigDirError, ConfigReadError, ConfigWriteError } from "@/domain/errors";
 
 export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     openRouterApiKey: Schema.optional(Schema.String),

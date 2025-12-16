@@ -6,7 +6,8 @@ import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { MaxIterationsReached, UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
-import type { AgentEvent, UserAction } from "@/services/agent";
+import { WorkflowState } from "@/domain/workflow";
+import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
 import { fitToTerminalWidth, formatWindow } from "@/text-utils";
@@ -224,23 +225,46 @@ export const writeCommand = Command.make(
             // Process events in the background
             const eventProcessor = yield* agentSession.events.pipe(Stream.runForEach(processEvent), Effect.fork);
 
-            // Wait for the result
+            // Wait for the result, handling MaxIterationsReached specially to allow save
             const agentResult = yield* agentSession.result.pipe(
-                Effect.tapError((error) =>
+                Effect.catchIf(
+                    (error): error is MaxIterationsReached => error instanceof MaxIterationsReached,
+                    (error) =>
+                        Effect.gen(function* () {
+                            yield* Effect.sync(() => {
+                                s.stop("Iteration limit reached");
+                                log.warn(`Maximum iterations (${error.iterations}) reached.`);
+                            });
+
+                            // Wait for remaining events to process
+                            yield* Fiber.join(eventProcessor);
+
+                            if (error.lastDraft) {
+                                yield* Effect.sync(() => {
+                                    note(fitToTerminalWidth(error.lastDraft ?? ""), "Last Draft");
+                                });
+
+                                // Return a synthetic result so the save flow can continue
+                                return {
+                                    finalContent: error.lastDraft,
+                                    iterations: error.iterations,
+                                    state: WorkflowState.empty,
+                                } satisfies RunResult;
+                            }
+
+                            // No draft to save - re-fail
+                            return yield* Effect.fail(error);
+                        }),
+                ),
+                Effect.tapError(() =>
                     Effect.sync(() => {
                         s.stop("An error occurred");
-                        if (error instanceof MaxIterationsReached && error.lastDraft) {
-                            note(
-                                fitToTerminalWidth(`${error.lastDraft.slice(0, 500)}...`),
-                                "Last Draft (before iteration limit)",
-                            );
-                        }
                     }),
                 ),
             );
 
-            // Wait for event processing to complete
-            yield* Fiber.join(eventProcessor);
+            // Wait for event processing to complete (if not already joined above)
+            yield* Fiber.join(eventProcessor).pipe(Effect.catchAll(() => Effect.void));
 
             yield* Effect.sync(() => {
                 s.stop("Workflow complete");
@@ -314,7 +338,8 @@ export const writeCommand = Command.make(
                     return Effect.void;
                 }
                 if (error instanceof MaxIterationsReached) {
-                    // Already handled in tapError above
+                    // Only reaches here if no lastDraft was available (handled above otherwise)
+                    log.error("No draft was available to save.");
                     return Effect.void;
                 }
                 return Effect.fail(error);
