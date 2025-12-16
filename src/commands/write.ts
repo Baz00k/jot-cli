@@ -1,3 +1,8 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
+import { Args, Command, Options } from "@effect/cli";
+import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { MaxIterationsReached, UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
@@ -6,11 +11,6 @@ import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
 import { fitToTerminalWidth, formatWindow } from "@/text-utils";
-import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
-import { Args, Command, Options } from "@effect/cli";
-import { Effect, Fiber, Option, Stream } from "effect";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
     Effect.tryPromise({
@@ -165,12 +165,9 @@ export const writeCommand = Command.make(
 
                     switch (event._tag) {
                         case "Progress": {
-                            const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";
                             yield* Effect.sync(() => {
-                                s.stop(stopMsg);
                                 log.step(`[Cycle ${event.cycle}] ${event.message}`);
                                 currentWindowContent = "";
-                                s.start("...");
                             });
                             break;
                         }
@@ -182,7 +179,7 @@ export const writeCommand = Command.make(
                         case "DraftComplete": {
                             yield* Effect.sync(() => {
                                 s.stop(formatWindow(currentWindowContent));
-                                log.success(`Draft complete (Cycle ${event.cycle})`);
+                                log.success("Draft complete");
                                 currentWindowContent = "";
                             });
                             break;
@@ -190,9 +187,9 @@ export const writeCommand = Command.make(
                         case "ReviewComplete": {
                             yield* Effect.sync(() => {
                                 if (event.approved) {
-                                    log.success(`AI review approved (Cycle ${event.cycle})`);
+                                    log.success("AI review approved");
                                 } else {
-                                    log.warn(`AI review rejected (Cycle ${event.cycle})`);
+                                    log.warn("AI review rejected");
                                     if (event.critique) {
                                         note(fitToTerminalWidth(event.critique), "AI Critique");
                                     }
@@ -201,7 +198,6 @@ export const writeCommand = Command.make(
                             break;
                         }
                         case "UserActionRequired": {
-                            // Stop spinner and get user feedback
                             yield* Effect.sync(() => s.stop("Awaiting your review..."));
 
                             const userAction = yield* getUserFeedback(event.draft, event.cycle);

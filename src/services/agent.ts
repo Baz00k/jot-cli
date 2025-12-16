@@ -300,13 +300,11 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const isRevision = Option.isSome(state.latestDraft);
                             const latestFeedback = state.latestFeedback;
 
-                            yield* Effect.logDebug(`Starting drafting phase`, { isRevision });
+                            yield* Effect.logDebug("Starting drafting phase", { isRevision });
 
                             yield* Queue.offer(eventQueue, {
                                 _tag: "Progress",
-                                message: isRevision
-                                    ? `Revising draft (cycle ${cycle})...`
-                                    : "Drafting initial content...",
+                                message: isRevision ? "Revising draft..." : "Drafting initial content...",
                                 cycle,
                             });
 
@@ -356,7 +354,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             yield* Effect.logDebug("Starting review phase", { cycle });
                             yield* Queue.offer(eventQueue, {
                                 _tag: "Progress",
-                                message: `Reviewing draft (cycle ${cycle})...`,
+                                message: "Reviewing draft...",
                                 cycle,
                             });
 
