@@ -7,7 +7,16 @@ import { ConfigReadError, ConfigWriteError } from "@/domain/errors";
 export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     openRouterApiKey: Schema.optional(Schema.String),
     /** Maximum iterations for the autonomous agent loop */
-    agentMaxIterations: Schema.optionalWith(Schema.Number, { default: () => DEFAULT_MAX_AGENT_ITERATIONS }),
+    agentMaxIterations: Schema.optionalWith(
+        Schema.Int.pipe(
+            Schema.between(1, 100, {
+                message: () => "agentMaxIterations must be an integer between 1 and 100",
+            }),
+        ),
+        {
+            default: () => DEFAULT_MAX_AGENT_ITERATIONS,
+        },
+    ),
 }) {}
 
 export const getConfigDir = Effect.gen(function* () {
