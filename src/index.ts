@@ -19,8 +19,10 @@ const cli = Command.run(command, {
     version: version,
 });
 
-const program = Effect.suspend(() => cli(process.argv));
+const program = Effect.suspend(() => cli(process.argv)).pipe(
+    Effect.tapErrorCause((cause) => Effect.logError("Application error", cause)),
+);
 
 const MainLayer = Layer.mergeAll(Agent.Default, Config.Default, AppLogger).pipe(Layer.provideMerge(BunContext.layer));
 
-program.pipe(Effect.provide(MainLayer), BunRuntime.runMain);
+program.pipe(Effect.provide(MainLayer), BunRuntime.runMain({ disablePrettyLogger: true }));

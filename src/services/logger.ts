@@ -23,20 +23,18 @@ export const getLogPath = Effect.gen(function* () {
     return yield* Effect.fail("Unable to determine log path");
 });
 
-export const AppLogger = Layer.unwrapScoped(
-    Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const logPath = yield* getLogPath;
+export const AppLogger = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const logPath = yield* getLogPath;
 
-        // Ensure directory exists
-        const dir = path.dirname(logPath);
-        yield* fs.makeDirectory(dir, { recursive: true });
+    // Ensure directory exists
+    const dir = path.dirname(logPath);
+    yield* fs.makeDirectory(dir, { recursive: true });
 
-        const fileLogger = yield* Logger.logfmtLogger.pipe(
-            PlatformLogger.toFile(logPath, { batchWindow: Duration.millis(100) }),
-        );
+    const fileLogger = yield* Logger.logfmtLogger.pipe(
+        PlatformLogger.toFile(logPath, { batchWindow: Duration.millis(100) }),
+    );
 
-        return Logger.replace(Logger.defaultLogger, fileLogger);
-    }),
-);
+    return Logger.replaceScoped(Logger.defaultLogger, Effect.succeed(fileLogger));
+}).pipe(Layer.unwrapScoped);
