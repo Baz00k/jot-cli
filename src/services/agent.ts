@@ -219,6 +219,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
              */
             run: (options: RunOptions) =>
                 Effect.gen(function* () {
+                    yield* Effect.logInfo("Starting agent run", options);
+
                     const userConfig = yield* config.get;
                     const apiKey = userConfig.openRouterApiKey;
 
@@ -269,6 +271,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const state = yield* Ref.get(stateRef);
                             const cycle = state.iterationCount + 1;
 
+                            yield* Effect.logDebug(`Starting agent cycle ${cycle}`);
+
                             // 1. Safety Check: Max Iterations
                             if (state.iterationCount >= maxIterations) {
                                 const lastDraft = Option.getOrElse(state.latestDraft, () => "");
@@ -288,6 +292,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             // 2. Drafting Phase
                             const isRevision = Option.isSome(state.latestDraft);
                             const latestFeedback = state.latestFeedback;
+
+                            yield* Effect.logDebug(`Starting drafting phase`, { isRevision });
 
                             yield* Queue.offer(eventQueue, {
                                 _tag: "Progress",
@@ -331,6 +337,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 ),
                             );
 
+                            yield* Effect.logDebug("Drafting complete", { length: newContent.length });
+
                             yield* Queue.offer(eventQueue, {
                                 _tag: "DraftComplete",
                                 content: newContent,
@@ -338,6 +346,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             });
 
                             // 3. Review Phase
+                            yield* Effect.logDebug("Starting review phase", { cycle });
                             yield* Queue.offer(eventQueue, {
                                 _tag: "Progress",
                                 message: `Reviewing draft (cycle ${cycle})...`,
@@ -354,6 +363,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 reviewerTask.system,
                                 reviewPrompt,
                             );
+
+                            yield* Effect.logDebug("Review complete", { approved: reviewResult.approved });
 
                             // Update state with review
                             yield* Ref.update(stateRef, (s) =>
@@ -425,8 +436,13 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             return newContent;
                         });
 
-                    // Fork the workflow with guaranteed queue shutdown
-                    const workflowFiber = yield* step().pipe(Effect.ensuring(Queue.shutdown(eventQueue)), Effect.fork);
+                    // Fork the workflow
+                    const workflowFiber = yield* step().pipe(
+                        Effect.ensuring(
+                            Queue.shutdown(eventQueue).pipe(Effect.andThen(Effect.logDebug("Event queue shutdown"))),
+                        ),
+                        Effect.fork,
+                    );
 
                     return {
                         events: Stream.fromQueue(eventQueue),

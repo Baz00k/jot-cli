@@ -161,6 +161,8 @@ export const writeCommand = Command.make(
             // Process events - handle user action requests inline
             const processEvent = (event: AgentEvent) =>
                 Effect.gen(function* () {
+                    yield* Effect.logDebug(`Processing agent event: ${event._tag}`, event);
+
                     switch (event._tag) {
                         case "Progress": {
                             const stopMsg = currentWindowContent ? formatWindow(currentWindowContent) : "Ready";

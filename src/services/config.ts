@@ -43,16 +43,22 @@ export class Config extends Effect.Service<Config>()("services/config", {
         const path = yield* Path.Path;
         const configPath = yield* getConfigPath;
 
+        yield* Effect.logDebug(`Loading config from ${configPath}`);
+
         const initialConfig = yield* fs.readFileString(configPath).pipe(
             Effect.flatMap((content) => Schema.decodeUnknown(Schema.parseJson(UserConfig))(content)),
             Effect.catchTag("SystemError", (error) => {
                 if (error.reason === "NotFound") {
-                    return Effect.succeed(new UserConfig({}));
+                    return Effect.succeed(new UserConfig({})).pipe(
+                        Effect.tap(() => Effect.logDebug("Default config created")),
+                    );
                 }
                 return Effect.fail(new ConfigReadError({ cause: error }));
             }),
             Effect.catchAllCause((cause) => Effect.fail(new ConfigReadError({ cause }))),
         );
+
+        yield* Effect.logDebug("Config loaded successfully");
 
         const configRef = yield* Ref.make(initialConfig);
 
@@ -64,6 +70,8 @@ export class Config extends Effect.Service<Config>()("services/config", {
                         configRef,
                         (current) => new UserConfig({ ...current, ...patch }),
                     );
+
+                    yield* Effect.logDebug(`Updating config at ${configPath}`);
 
                     const configDir = path.dirname(configPath);
 
