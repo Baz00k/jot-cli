@@ -3,12 +3,11 @@
 ## Important Commands
 
 - **Install dependencies**: `bun install`
-- **Run main**: `bun run src/index.ts`
+- **Run**: `bun run src/index.ts`
 - **Check (types, linting, formatting)**: `bun check`
 - **Fix auto fixable errors**: `bun check:fix`
-- **Run tests**: `bun test`
+- **Run tests**: `AGENT=1 bun test`
 - **Run single test**: `bun test <filename.test.ts>`
-- **Build**: `bun build <entry-file>`
 - **Compile**: `bun compile`
 
 ## Code Style Guidelines
@@ -21,24 +20,17 @@ Use Effect for error safety.
 - Use Bun instead of Node.js/npm/pnpm
 - Use `bun test` for testing framework
 
-### TypeScript Configuration
-
-- Strict TypeScript enabled
-- ESNext target with bundler module resolution
-- verbatimModuleSyntax: true (use explicit type imports)
-- noUncheckedIndexedAccess: true
-
 ### Import Style
 
-- Use explicit type imports (due to verbatimModuleSyntax)
+- Use explicit type imports
 - Import using relative paths for files in the same directory
 - Import using path aliases everywhere else
 
 ### Naming Conventions
 
+- Prefer single word variable names where possible
 - Use camelCase for variables and functions
-- Use PascalCase for classes/types
-- Use kebab-case for file names when appropriate
+- Use PascalCase for classes/types/namespaces
 - CLI commands should use descriptive, action-oriented names
 
 ### Testing
