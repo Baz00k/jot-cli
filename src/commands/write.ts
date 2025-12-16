@@ -1,8 +1,3 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
-import { Args, Command, Options } from "@effect/cli";
-import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { MaxIterationsReached, UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
@@ -11,6 +6,11 @@ import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
 import { fitToTerminalWidth, formatWindow } from "@/text-utils";
+import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
+import { Args, Command, Options } from "@effect/cli";
+import { Effect, Fiber, Option, Stream } from "effect";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
     Effect.tryPromise({
@@ -161,7 +161,7 @@ export const writeCommand = Command.make(
             // Process events - handle user action requests inline
             const processEvent = (event: AgentEvent) =>
                 Effect.gen(function* () {
-                    yield* Effect.logDebug(`Processing agent event: ${event._tag}`, event);
+                    yield* Effect.logDebug(`Processing agent event: ${event._tag}`);
 
                     switch (event._tag) {
                         case "Progress": {

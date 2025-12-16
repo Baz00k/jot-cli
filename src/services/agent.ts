@@ -219,7 +219,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
              */
             run: (options: RunOptions) =>
                 Effect.gen(function* () {
-                    yield* Effect.logInfo("Starting agent run", options);
+                    yield* Effect.logInfo("Starting agent run").pipe(
+                        Effect.annotateLogs({
+                            writer: options.modelWriter,
+                            reviewer: options.modelReviewer,
+                            reasoning: options.reasoning,
+                            maxIterations: options.maxIterations,
+                        }),
+                    );
 
                     const userConfig = yield* config.get;
                     const apiKey = userConfig.openRouterApiKey;
