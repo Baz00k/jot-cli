@@ -41,7 +41,7 @@ const status = Command.make("status", {}, () =>
     }),
 ).pipe(Command.withDescription("Check if API key is configured"));
 
-export const configCommand = Command.make("config", { args: Args.none }, () => Effect.void).pipe(
+export const configCommand = Command.make("config").pipe(
     Command.withDescription("Manage jot-cli configuration"),
     Command.withSubcommands([setKey, showPath, status]),
 );
