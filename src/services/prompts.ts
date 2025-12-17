@@ -6,10 +6,6 @@ import { promptPaths } from "@/prompts";
 
 export type PromptType = keyof typeof promptPaths;
 
-// ============================================================================
-// Typed Prompt Input Types
-// ============================================================================
-
 export interface WriterTaskInput {
     readonly goal: string;
     readonly context?: {
@@ -22,10 +18,6 @@ export interface ReviewerTaskInput {
     readonly goal: string;
     readonly draft: string;
 }
-
-// ============================================================================
-// Prompts Service
-// ============================================================================
 
 export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     effect: Effect.gen(function* () {
@@ -106,10 +98,6 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             input.draft,
                             "",
                             "Evaluate this draft against the original goal.",
-                            "You MUST respond with a JSON object containing:",
-                            '- "approved": boolean (true if the draft meets the goal)',
-                            '- "critique": string (specific feedback if not approved, empty if approved)',
-                            '- "reasoning": string (your internal analysis)',
                         ].join("\n");
                     },
                 };

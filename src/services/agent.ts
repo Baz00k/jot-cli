@@ -17,12 +17,7 @@ import { Config } from "@/services/config";
 import { Prompts } from "@/services/prompts";
 import { tools } from "@/tools";
 
-// Create JSON schema for AI SDK from Effect Schema
 const reviewResultJsonSchema = jsonSchema<Schema.Schema.Type<typeof ReviewResult>>(JSONSchema.make(ReviewResult));
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
@@ -79,10 +74,6 @@ export interface RunResult {
     readonly state: WorkflowState;
 }
 
-// ============================================================================
-// Model Creation
-// ============================================================================
-
 const createModel = (
     apiKey: string,
     modelName: string,
@@ -97,10 +88,6 @@ const createModel = (
         },
     });
 };
-
-// ============================================================================
-// LLM Interaction Helpers
-// ============================================================================
 
 const runStreamingGeneration = (
     params: Parameters<typeof streamText>[0],
@@ -200,10 +187,6 @@ const runStructuredGeneration = (model: LanguageModel, system: string, prompt: s
                 }),
         ),
     );
-
-// ============================================================================
-// Agent Service
-// ============================================================================
 
 export class Agent extends Effect.Service<Agent>()("services/agent", {
     effect: Effect.gen(function* () {
@@ -501,9 +484,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     };
                 }),
 
-            /**
-             * Execute a file write operation with safety checks
-             */
             executeWrite: (filePath: string, content: string) =>
                 Effect.gen(function* () {
                     const cwd = process.cwd();

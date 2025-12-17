@@ -44,7 +44,6 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
  */
 const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction, UserCancel | Error> =>
     Effect.gen(function* () {
-        // Show draft preview
         const preview = draft.length > 1000 ? `${draft.slice(0, 1000)}...` : draft;
         yield* Effect.sync(() => note(fitToTerminalWidth(preview), `Draft (Cycle ${cycle}) - Preview`));
 
@@ -134,7 +133,6 @@ export const writeCommand = Command.make(
 
             yield* Effect.sync(() => intro(`Jot CLI - AI Research Assistant`));
 
-            // Check for API key first
             const userConfig = yield* config.get;
             const apiKey = userConfig.openRouterApiKey;
 
@@ -180,7 +178,6 @@ export const writeCommand = Command.make(
                 ),
             });
 
-            // Process events - handle user action requests inline
             const processEvent = (event: AgentEvent) =>
                 Effect.gen(function* () {
                     yield* Effect.logDebug(`Processing agent event: ${event._tag}`);
@@ -224,7 +221,6 @@ export const writeCommand = Command.make(
 
                             const userAction = yield* getUserFeedback(event.draft, event.cycle);
 
-                            // Submit the action back to the agent
                             yield* agentSession.submitUserAction(userAction);
 
                             if (userAction.type === "reject") {
@@ -264,7 +260,6 @@ export const writeCommand = Command.make(
                                     note(fitToTerminalWidth(error.lastDraft ?? ""), "Last Draft");
                                 });
 
-                                // Return a synthetic result so the save flow can continue
                                 return {
                                     finalContent: error.lastDraft,
                                     iterations: error.iterations,
@@ -283,8 +278,7 @@ export const writeCommand = Command.make(
                 ),
             );
 
-            // Wait for event processing to complete (if not already joined above)
-            yield* Fiber.join(eventProcessor).pipe(Effect.catchAll(() => Effect.void));
+            yield* Fiber.join(eventProcessor);
 
             yield* Effect.sync(() => {
                 s.stop("Workflow complete");
