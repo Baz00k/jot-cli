@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Fiber, Option, Stream } from "effect";
-import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
+import { DEFAULT_MAX_AGENT_ITERATIONS, DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
 import { MaxIterationsReached, UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
 import { WorkflowState } from "@/domain/workflow";
@@ -103,27 +103,27 @@ export const writeCommand = Command.make(
         args: Args.text({ name: "prompt" }).pipe(Args.withDescription("The writing instruction"), Args.optional),
         options: Options.all({
             writer: Options.text("writer").pipe(
+                Options.optional,
                 Options.withAlias("w"),
-                Options.withDefault(DEFAULT_MODEL_WRITER),
                 Options.withDescription("Model for drafting"),
             ),
             reviewer: Options.text("reviewer").pipe(
+                Options.optional,
                 Options.withAlias("r"),
-                Options.withDefault(DEFAULT_MODEL_REVIEWER),
                 Options.withDescription("Model for reviewing"),
             ),
             noReasoning: Options.boolean("no-reasoning").pipe(
-                Options.withDefault(false),
+                Options.optional,
                 Options.withDescription("Disable reasoning for thinking models"),
             ),
             reasoningEffort: Options.choice("reasoning-effort", reasoningOptions.literals).pipe(
-                Options.withDefault("high"),
+                Options.optional,
                 Options.withDescription("Effort level for reasoning (low, medium, high)"),
             ),
             maxIterations: Options.integer("max-iterations").pipe(
+                Options.optional,
                 Options.withAlias("i"),
-                Options.withDefault(10),
-                Options.withDescription("Maximum revision cycles (default: 10)"),
+                Options.withDescription("Maximum revision cycles"),
             ),
         }),
     },
@@ -165,11 +165,19 @@ export const writeCommand = Command.make(
 
             const agentSession = yield* agent.run({
                 prompt: userPrompt,
-                modelWriter: options.writer,
-                modelReviewer: options.reviewer,
-                reasoningEffort: options.reasoningEffort,
-                reasoning: !options.noReasoning,
-                maxIterations: options.maxIterations,
+                modelWriter: Option.getOrElse(options.writer, () => userConfig.writerModel ?? DEFAULT_MODEL_WRITER),
+                modelReviewer: Option.getOrElse(
+                    options.reviewer,
+                    () => userConfig.reviewerModel ?? DEFAULT_MODEL_REVIEWER,
+                ),
+                reasoningEffort: Option.getOrElse(options.reasoningEffort, () => userConfig.reasoningEffort ?? "high"),
+                reasoning: Option.map(options.noReasoning, (no) => !no).pipe(
+                    Option.getOrElse(() => userConfig.reasoning ?? true),
+                ),
+                maxIterations: Option.getOrElse(
+                    options.maxIterations,
+                    () => userConfig.agentMaxIterations ?? DEFAULT_MAX_AGENT_ITERATIONS,
+                ),
             });
 
             // Process events - handle user action requests inline

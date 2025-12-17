@@ -17,6 +17,14 @@ export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
             default: () => DEFAULT_MAX_AGENT_ITERATIONS,
         },
     ),
+    /** Default model for drafting content */
+    writerModel: Schema.optional(Schema.String),
+    /** Default model for reviewing content */
+    reviewerModel: Schema.optional(Schema.String),
+    /** Enable reasoning for thinking models */
+    reasoning: Schema.optionalWith(Schema.Boolean, { default: () => true }),
+    /** Effort level for reasoning (low, medium, high) */
+    reasoningEffort: Schema.optionalWith(Schema.Literal("low", "medium", "high"), { default: () => "high" as const }),
 }) {}
 
 export const getConfigDir = Effect.gen(function* () {
