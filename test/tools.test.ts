@@ -1,10 +1,12 @@
+import { MAX_FULL_FILE_SIZE_KB } from "@/domain/constants";
+import { ProjectFiles } from "@/services/project-files";
+import { listFilesTool, readFileTool, searchFilesTool, writeFileTool } from "@/tools";
+import type { ToolCallOptions } from "ai";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ToolCallOptions } from "ai";
-import { MAX_FULL_FILE_SIZE_KB } from "@/domain/constants";
-import { listFilesTool, readFileTool, safePath, searchFilesTool, writeFileTool } from "@/tools";
 
 describe("Tools Module", () => {
     let testDir: string;
@@ -26,16 +28,19 @@ describe("Tools Module", () => {
     });
 
     describe("Security - Path Traversal Prevention", () => {
-        test("prevents path traversal with ..", () => {
-            expect(() => safePath("../outside.txt")).toThrow("Access denied");
+        const runSafePath = (p: string) =>
+            Effect.runPromise(ProjectFiles.safePath(p).pipe(Effect.provide(ProjectFiles.Default)));
+
+        test("prevents path traversal with ..", async () => {
+            expect(runSafePath("../outside.txt")).rejects.toThrow("Access denied");
         });
 
-        test("prevents complex path traversal attempts", () => {
-            expect(() => safePath("subdir/../../outside.txt")).toThrow("Access denied");
+        test("prevents complex path traversal attempts", async () => {
+            expect(runSafePath("subdir/../../outside.txt")).rejects.toThrow("Access denied");
         });
 
-        test("prevents absolute path escapes", () => {
-            expect(() => safePath("/tmp/outside.txt")).toThrow("Access denied");
+        test("prevents absolute path escapes", async () => {
+            expect(runSafePath("/tmp/outside.txt")).rejects.toThrow("Access denied");
         });
     });
 
