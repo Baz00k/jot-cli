@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.0](https://github.com/Baz00k/jot-cli/compare/v0.0.2...v0.1.0) (2025-12-17)
+
+
+### Features
+
+* add ability to save user models and reasoning params ([73ebb4b](https://github.com/Baz00k/jot-cli/commit/73ebb4b9ff7aac387a65d4557d95f12231de49bf))
+* improved, multi step autonomous agent ([a1980e2](https://github.com/Baz00k/jot-cli/commit/a1980e20527e737296b925d72953954db3b1fd7e))
+
+
+### Bug Fixes
+
+* logger not writing files properly, disable default bun pretty logger ([e751fa0](https://github.com/Baz00k/jot-cli/commit/e751fa0b8a0e46348aa1f119fec0177c9477c639))
+* possible EventTarget memory leak ([b165775](https://github.com/Baz00k/jot-cli/commit/b1657756abafdc637b1c3fc3dfa1d0035a5841f0))
+* possible unhandler errors and race conditions ([839a19e](https://github.com/Baz00k/jot-cli/commit/839a19e20a128cd24cf1f8aeac2b946dfdb13692))
+* remove args from bare config command so it returs usage info ([d265645](https://github.com/Baz00k/jot-cli/commit/d265645e9538471988a1b1ac02970e5908dc84cb))
+
 ## [0.0.2](https://github.com/Baz00k/jot-cli/compare/v0.0.1...v0.0.2) (2025-12-10)
 
 
