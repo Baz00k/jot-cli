@@ -22,7 +22,21 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
             return result as T;
         },
         catch: (e) => (e instanceof UserCancel ? e : new Error(String(e))),
-    });
+    }).pipe(
+        Effect.tap(() =>
+            Effect.try({
+                try: () => {
+                    // Clean up any remaining listeners to prevent memory leaks
+                    if (process.stdin?.listenerCount("keypress") > 0) {
+                        process.stdin.removeAllListeners("keypress");
+                    }
+                },
+                catch: () => {
+                    // Silently handle cleanup errors to avoid breaking the prompt flow
+                },
+            }).pipe(Effect.orDie),
+        ),
+    );
 
 /**
  * Handle user feedback when AI review approves the draft.
