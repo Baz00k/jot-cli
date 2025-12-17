@@ -1,5 +1,3 @@
-import { FileSystem, Path } from "@effect/platform";
-import { BunContext } from "@effect/platform-bun";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateObject, jsonSchema, type LanguageModel, stepCountIs, streamText } from "ai";
 import { Deferred, Effect, Fiber, JSONSchema, Option, Queue, Ref, Schedule, Schema, Stream } from "effect";
@@ -14,6 +12,7 @@ import {
 } from "@/domain/errors";
 import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowState } from "@/domain/workflow";
 import { Config } from "@/services/config";
+import { ProjectFiles } from "@/services/project-files";
 import { Prompts } from "@/services/prompts";
 import { tools } from "@/tools";
 
@@ -192,8 +191,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
     effect: Effect.gen(function* () {
         const prompts = yield* Prompts;
         const config = yield* Config;
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
+        const projectFiles = yield* ProjectFiles;
 
         return {
             /**
@@ -485,43 +483,17 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                 }),
 
             executeWrite: (filePath: string, content: string) =>
-                Effect.gen(function* () {
-                    const cwd = process.cwd();
-                    const resolved = path.resolve(filePath);
-                    const normalizedResolved = path.normalize(resolved).toLowerCase();
-                    const normalizedCwd = path.normalize(cwd).toLowerCase();
-
-                    if (!normalizedResolved.startsWith(normalizedCwd)) {
-                        return yield* Effect.fail(
+                projectFiles.writeFile(filePath, content, true).pipe(
+                    Effect.catchAll((error) =>
+                        Effect.fail(
                             new FileWriteError({
-                                cause: `Path ${resolved} is outside working directory ${cwd}`,
-                                message: `Access denied: ${resolved} is outside of current working directory ${cwd}`,
+                                cause: error,
+                                message: error instanceof Error ? error.message : String(error),
                             }),
-                        );
-                    }
-
-                    const targetPath = resolved;
-                    const dir = path.dirname(targetPath);
-
-                    yield* fs
-                        .makeDirectory(dir, { recursive: true })
-                        .pipe(
-                            Effect.catchAll((error) =>
-                                Effect.fail(
-                                    new FileWriteError({ cause: error, message: "Failed to create directory" }),
-                                ),
-                            ),
-                        );
-
-                    yield* fs
-                        .writeFileString(targetPath, content)
-                        .pipe(
-                            Effect.catchAll((error) =>
-                                Effect.fail(new FileWriteError({ cause: error, message: "Failed to write file" })),
-                            ),
-                        );
-                }),
+                        ),
+                    ),
+                ),
         };
     }),
-    dependencies: [Prompts.Default, Config.Default, BunContext.layer],
+    dependencies: [Prompts.Default, Config.Default, ProjectFiles.Default],
 }) {}
