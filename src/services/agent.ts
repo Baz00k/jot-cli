@@ -435,7 +435,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 {
                                     model: writerModel,
                                     tools: edit_tools,
-                                    stopWhen: stepCountIs(10),
+                                    stopWhen: stepCountIs(MAX_STEP_COUNT),
                                     system: editorTask.system,
                                     prompt: editPrompt,
                                 },
