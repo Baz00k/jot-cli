@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { $ } from "bun";
+import type { UserConfig } from "@/services/config";
 
 describe("CLI Integration", () => {
     let testConfigDir: string;
@@ -68,7 +69,7 @@ describe("CLI Integration", () => {
         const configPath = stdout.toString().trim();
 
         const content = await fs.readFile(configPath, "utf-8");
-        const config = JSON.parse(content);
+        const config = JSON.parse(content) as UserConfig;
 
         expect(config.openRouterApiKey).toBe(testKey);
     });
