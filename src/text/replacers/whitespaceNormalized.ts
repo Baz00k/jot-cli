@@ -22,7 +22,7 @@ export const WhitespaceNormalizedReplacer: Replacer = (content, find) =>
                         const words = find.trim().split(/\s+/);
                         if (words.length > 0) {
                             const pattern = words
-                                .map((word) => word.replace(/[.*+?^${}()|[\]\\\\]/g, "\\\\$&"))
+                                .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
                                 .join("\\s+");
                             try {
                                 const regex = new RegExp(pattern);
