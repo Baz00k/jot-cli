@@ -21,7 +21,8 @@ const readFileSchema = Schema.Struct({
 type ReadFileInput = Schema.Schema.Type<typeof readFileSchema>;
 
 export const readFileTool = tool({
-    description: "Read the text content of a file. For large files, returns an excerpt with beginning and end.",
+    description:
+        "Read the text content of a file. For large files, either use lineRange or the text might get truncated.",
     inputSchema: jsonSchema<ReadFileInput>(JSONSchema.make(readFileSchema)),
     execute: async ({ filePath, lineRange }) => {
         const execute = ProjectFiles.readFile(filePath, {

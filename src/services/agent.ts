@@ -14,7 +14,7 @@ import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowSt
 import { Config } from "@/services/config";
 import { ProjectFiles } from "@/services/project-files";
 import { Prompts } from "@/services/prompts";
-import { tools } from "@/tools";
+import { edit_tools, explore_tools } from "@/tools";
 
 const reviewResultJsonSchema = jsonSchema<Schema.Schema.Type<typeof ReviewResult>>(JSONSchema.make(ReviewResult));
 
@@ -34,7 +34,7 @@ export type AgentEvent =
     | {
           readonly _tag: "StreamChunk";
           readonly content: string;
-          readonly phase: "drafting" | "reviewing";
+          readonly phase: "drafting" | "reviewing" | "editing";
       }
     | {
           readonly _tag: "DraftComplete";
@@ -91,33 +91,37 @@ const createModel = (
 const runStreamingGeneration = (
     params: Parameters<typeof streamText>[0],
     eventQueue: Queue.Queue<AgentEvent>,
-    phase: "drafting" | "reviewing",
+    phase: "drafting" | "reviewing" | "editing",
 ) =>
     Effect.gen(function* () {
-        const result = yield* Effect.tryPromise({
-            try: async () => {
-                const response = streamText(params);
+        const response = streamText(params);
 
-                for await (const chunk of response.textStream) {
-                    await Effect.runPromise(
-                        Queue.offer(eventQueue, {
-                            _tag: "StreamChunk",
-                            content: chunk,
-                            phase,
-                        } as const),
-                    );
-                }
+        yield* Stream.fromAsyncIterable(
+            (async function* () {
+                yield* response.textStream;
+            })(),
+            (error) => (error instanceof Error ? error : new Error(String(error))),
+        ).pipe(
+            Stream.runForEach((chunk) =>
+                Queue.offer(eventQueue, {
+                    _tag: "StreamChunk",
+                    content: chunk,
+                    phase,
+                } as const),
+            ),
+        );
 
-                const text = await response.text;
-                if (!text || text.trim().length === 0) {
-                    throw new Error("Generation failed: Empty response received.");
-                }
-                return text;
-            },
+        // Get final text after stream completes
+        const text = yield* Effect.tryPromise({
+            try: () => response.text,
             catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         });
 
-        return result;
+        if (!text || text.trim().length === 0) {
+            return yield* Effect.fail(new Error("Generation failed: Empty response received."));
+        }
+
+        return text;
     }).pipe(
         Effect.retry({
             schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
@@ -144,16 +148,11 @@ const runStreamingGeneration = (
         ),
     );
 
-const runStructuredGeneration = (model: LanguageModel, system: string, prompt: string) =>
+const runStructuredGeneration = (params: Parameters<typeof generateObject>[0]) =>
     Effect.gen(function* () {
         const result = yield* Effect.tryPromise({
             try: async () => {
-                const response = await generateObject({
-                    model,
-                    schema: reviewResultJsonSchema,
-                    system,
-                    prompt,
-                });
+                const response = await generateObject(params);
                 // Validate and decode using Effect Schema
                 return Schema.decodeUnknownSync(ReviewResult)(response.object);
             },
@@ -242,6 +241,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     // Load prompt templates
                     const writerTask = yield* prompts.getWriterTask;
                     const reviewerTask = yield* prompts.getReviewerTask;
+                    const editorTask = yield* prompts.getEditorTask;
 
                     // Create event queue and user action deferred
                     const eventQueue = yield* Queue.unbounded<AgentEvent>();
@@ -303,7 +303,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const newContent = yield* runStreamingGeneration(
                                 {
                                     model: writerModel,
-                                    tools: isRevision ? undefined : tools,
+                                    tools: explore_tools,
                                     stopWhen: isRevision ? undefined : stepCountIs(MAX_STEP_COUNT),
                                     system: writerTask.system,
                                     prompt: writerPrompt,
@@ -344,11 +344,12 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 draft: newContent,
                             });
 
-                            const reviewResult = yield* runStructuredGeneration(
-                                reviewerModel,
-                                reviewerTask.system,
-                                reviewPrompt,
-                            );
+                            const reviewResult = yield* runStructuredGeneration({
+                                model: reviewerModel,
+                                system: reviewerTask.system,
+                                prompt: reviewPrompt,
+                                schema: reviewResultJsonSchema,
+                            });
 
                             yield* Effect.logDebug("Review complete", { approved: reviewResult.approved });
 
@@ -417,6 +418,30 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 });
                                 return yield* step();
                             }
+
+                            // 6. Editing Phase
+                            yield* Queue.offer(eventQueue, {
+                                _tag: "Progress",
+                                message: "Applying approved changes to project files...",
+                                cycle,
+                            });
+
+                            const editPrompt = editorTask.render({
+                                goal: options.prompt,
+                                approvedContent: newContent,
+                            });
+
+                            yield* runStreamingGeneration(
+                                {
+                                    model: writerModel,
+                                    tools: edit_tools,
+                                    stopWhen: stepCountIs(10),
+                                    system: editorTask.system,
+                                    prompt: editPrompt,
+                                },
+                                eventQueue,
+                                "editing",
+                            );
 
                             // Success - workflow complete
                             return newContent;

@@ -19,6 +19,11 @@ export interface ReviewerTaskInput {
     readonly draft: string;
 }
 
+export interface EditorTaskInput {
+    readonly goal: string;
+    readonly approvedContent: string;
+}
+
 export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     effect: Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -98,6 +103,30 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             input.draft,
                             "",
                             "Evaluate this draft against the original goal.",
+                        ].join("\n");
+                    },
+                };
+            }),
+
+            /**
+             * Get a function that renders editor task prompts.
+             */
+            getEditorTask: Effect.gen(function* () {
+                const systemPrompt = yield* loadRaw("editor");
+
+                return {
+                    system: systemPrompt,
+                    render: (input: EditorTaskInput): string => {
+                        return [
+                            "## Original Goal",
+                            input.goal,
+                            "",
+                            "## Approved Content",
+                            input.approvedContent,
+                            "",
+                            "Please apply the approved content to the project files using the available tools.",
+                            "You may need to create new files or edit existing ones.",
+                            "When you have finished applying the changes, provide a brief summary of the actions you took.",
                         ].join("\n");
                     },
                 };

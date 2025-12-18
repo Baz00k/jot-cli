@@ -89,7 +89,8 @@ const editFileSchema = Schema.Struct({
 type EditFileInput = Schema.Schema.Type<typeof editFileSchema>;
 
 export const editFileTool = tool({
-    description: "Performs exact string replacements in files. Use this tool when you need to edit a file.",
+    description:
+        "Performs exact string replacements in files. You must use read tool before editing to get the file content.",
     inputSchema: jsonSchema<EditFileInput>(JSONSchema.make(editFileSchema)),
     execute: async ({ filePath, oldString, newString, replaceAll = false }) => {
         const program = Effect.gen(function* () {

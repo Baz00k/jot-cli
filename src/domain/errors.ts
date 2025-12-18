@@ -43,7 +43,7 @@ export class MaxIterationsReached extends Data.TaggedError("MaxIterationsReached
 export class AgentLoopError extends Data.TaggedError("AgentLoopError")<{
     readonly cause: unknown;
     readonly message?: string;
-    readonly phase: "drafting" | "reviewing" | "user_feedback";
+    readonly phase: "drafting" | "reviewing" | "user_feedback" | "editing";
 }> {}
 
 export class NoUserActionPending extends Data.TaggedError("NoUserActionPending")<{

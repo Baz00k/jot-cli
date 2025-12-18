@@ -1,5 +1,5 @@
-import { levenshtein } from "@/text/utils";
 import { Stream } from "effect";
+import { levenshtein } from "@/text/utils";
 import type { Replacer } from ".";
 
 const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.0;
