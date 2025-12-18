@@ -71,7 +71,7 @@ function replace(
 
 const editFileSchema = Schema.Struct({
     filePath: Schema.String.annotations({
-        description: "The absolute path to the file to modify",
+        description: "The relative path to the file to modify",
     }),
     oldString: Schema.String.annotations({
         description: "The text to replace",
