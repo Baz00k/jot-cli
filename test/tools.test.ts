@@ -81,6 +81,48 @@ describe("Tools Wrappers", () => {
             const content = await fs.readFile(path.join(testDir, "test.txt"), "utf-8");
             expect(content).toBe("hello@universe#test");
         });
+
+        test("fails if oldString and newString are the same", async () => {
+            await fs.writeFile(path.join(testDir, "test.txt"), "hello world");
+            expect(
+                editFileTool.execute?.(
+                    { filePath: "test.txt", oldString: "world", newString: "world" },
+                    {} as ToolCallOptions,
+                ),
+            ).rejects.toThrow("oldString and newString must be different");
+        });
+
+        test("fails if oldString is not found", async () => {
+            await fs.writeFile(path.join(testDir, "test.txt"), "hello world");
+            expect(
+                editFileTool.execute?.(
+                    { filePath: "test.txt", oldString: "universe", newString: "galaxy" },
+                    {} as ToolCallOptions,
+                ),
+            ).rejects.toThrow("oldString not found in content");
+        });
+
+        test("fails if multiple matches exist and replaceAll is false", async () => {
+            await fs.writeFile(path.join(testDir, "test.txt"), "hello world hello world");
+            expect(
+                editFileTool.execute?.(
+                    { filePath: "test.txt", oldString: "world", newString: "universe" },
+                    {} as ToolCallOptions,
+                ),
+            ).rejects.toThrow(
+                "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match.",
+            );
+        });
+
+        test("replaces all occurrences if replaceAll is true", async () => {
+            await fs.writeFile(path.join(testDir, "test.txt"), "hello world hello world");
+            await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "world", newString: "universe", replaceAll: true },
+                {} as ToolCallOptions,
+            );
+            const content = await fs.readFile(path.join(testDir, "test.txt"), "utf-8");
+            expect(content).toBe("hello universe hello universe");
+        });
     });
 
     describe("searchFilesTool", () => {
