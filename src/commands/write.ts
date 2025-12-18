@@ -10,7 +10,7 @@ import { WorkflowState } from "@/domain/workflow";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
-import { fitToTerminalWidth, formatWindow } from "@/text-utils";
+import { fitToTerminalWidth, formatWindow } from "@/text/utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
     Effect.tryPromise({

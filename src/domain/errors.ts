@@ -25,6 +25,11 @@ export class AgentStreamError extends Data.TaggedError("AgentStreamError")<{
     readonly message?: string;
 }> {}
 
+export class FileReadError extends Data.TaggedError("FileReadError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
 export class FileWriteError extends Data.TaggedError("FileWriteError")<{
     readonly cause: unknown;
     readonly message?: string;

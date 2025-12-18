@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ToolCallOptions } from "ai";
-import { listFilesTool, readFileTool, searchFilesTool, writeFileTool } from "@/tools";
+import { editFileTool, listFilesTool, readFileTool, searchFilesTool, writeFileTool } from "@/tools";
 
 describe("Tools Wrappers", () => {
     let testDir: string;
@@ -47,6 +47,39 @@ describe("Tools Wrappers", () => {
             await writeFileTool.execute?.({ filePath: "test.txt", content: "content" }, {} as ToolCallOptions);
             const content = await fs.readFile(path.join(testDir, "test.txt"), "utf-8");
             expect(content).toBe("content");
+        });
+    });
+
+    describe("editFileTool", () => {
+        test("executes successfully", async () => {
+            await fs.writeFile(path.join(testDir, "test.txt"), "hello world");
+            await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "world", newString: "universe" },
+                {} as ToolCallOptions,
+            );
+            const content = await fs.readFile(path.join(testDir, "test.txt"), "utf-8");
+            expect(content).toBe("hello universe");
+        });
+
+        test("handles multi-line strings", async () => {
+            const multiLineContent = "line1\nline2\nline3";
+            await fs.writeFile(path.join(testDir, "test.txt"), multiLineContent);
+            await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "line1\nline2", newString: "newLine1\nnewLine2" },
+                {} as ToolCallOptions,
+            );
+            const content = await fs.readFile(path.join(testDir, "test.txt"), "utf-8");
+            expect(content).toBe("newLine1\nnewLine2\nline3");
+        });
+
+        test("handles special characters", async () => {
+            await fs.writeFile(path.join(testDir, "test.txt"), "hello@world#test");
+            await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "@world", newString: "@universe" },
+                {} as ToolCallOptions,
+            );
+            const content = await fs.readFile(path.join(testDir, "test.txt"), "utf-8");
+            expect(content).toBe("hello@universe#test");
         });
     });
 
