@@ -5,14 +5,12 @@ import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/
 import {
     AgentLoopError,
     AgentStreamError,
-    FileWriteError,
     MaxIterationsReached,
     NoUserActionPending,
     UserCancel,
 } from "@/domain/errors";
 import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowState } from "@/domain/workflow";
 import { Config } from "@/services/config";
-import { ProjectFiles } from "@/services/project-files";
 import { Prompts } from "@/services/prompts";
 import { edit_tools, explore_tools } from "@/tools";
 
@@ -190,7 +188,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
     effect: Effect.gen(function* () {
         const prompts = yield* Prompts;
         const config = yield* Config;
-        const projectFiles = yield* ProjectFiles;
 
         return {
             /**
@@ -506,19 +503,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             }),
                     };
                 }),
-
-            executeWrite: (filePath: string, content: string) =>
-                projectFiles.writeFile(filePath, content, true).pipe(
-                    Effect.catchAll((error) =>
-                        Effect.fail(
-                            new FileWriteError({
-                                cause: error,
-                                message: error instanceof Error ? error.message : String(error),
-                            }),
-                        ),
-                    ),
-                ),
         };
     }),
-    dependencies: [Prompts.Default, Config.Default, ProjectFiles.Default],
+    dependencies: [Prompts.Default, Config.Default],
 }) {}
