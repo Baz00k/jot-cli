@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/Baz00k/jot-cli/compare/v0.1.0...v0.2.0) (2025-12-19)
+
+
+### Features
+
+* agent autonomous project files editing ([#19](https://github.com/Baz00k/jot-cli/issues/19)) ([63fcf62](https://github.com/Baz00k/jot-cli/commit/63fcf62b420982f956ba9c607a0d18cb367415ef))
+* improve reviewer prompt ([cbc0f31](https://github.com/Baz00k/jot-cli/commit/cbc0f31831419f0aeac147e6745c6030e11faddb))
+
 ## [0.1.0](https://github.com/Baz00k/jot-cli/compare/v0.0.2...v0.1.0) (2025-12-17)
 
 
