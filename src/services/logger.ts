@@ -38,3 +38,8 @@ export const AppLogger = Effect.gen(function* () {
 
     return Logger.replaceScoped(Logger.defaultLogger, Effect.succeed(fileLogger));
 }).pipe(Layer.unwrapScoped);
+
+export const TestAppLogger = Logger.replace(
+    Logger.defaultLogger,
+    Logger.make(() => {}),
+);

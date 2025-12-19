@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { BunFileSystem } from "@effect/platform-bun";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { PromptReadError } from "@/domain/errors";
 import { promptPaths } from "@/prompts";
 
@@ -136,3 +136,21 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     dependencies: [BunFileSystem.layer],
     accessors: true,
 }) {}
+
+export const TestPrompts = new Prompts({
+    get: () => Effect.succeed("prompt"),
+    getWriterTask: Effect.succeed({
+        render: (_: WriterTaskInput) => "prompt",
+        system: "system",
+    }),
+    getEditorTask: Effect.succeed({
+        render: (_: EditorTaskInput) => "prompt",
+        system: "system",
+    }),
+    getReviewerTask: Effect.succeed({
+        render: (_: ReviewerTaskInput) => "prompt",
+        system: "system",
+    }),
+});
+
+export const TestPromptsLayer = Layer.succeed(Prompts, TestPrompts);
