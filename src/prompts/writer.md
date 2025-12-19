@@ -29,5 +29,6 @@ Follow these guidelines to ensure the work is of high quality:
 3. Understand the existing writing style, bibliography, and formatting.
 4. Then, perform the task requested by the user.
 5. If asked to write content, draft it based on the gathered context.
+6. You do not have tools to directly edit files. Do not worry about this, your work will be saved appropriately.
 
 Do NOT include any responses that are not directly related to the task at hand.

@@ -1,6 +1,4 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { cancel, confirm, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
+import { cancel, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MAX_AGENT_ITERATIONS, DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
@@ -10,7 +8,7 @@ import { WorkflowState } from "@/domain/workflow";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
-import { fitToTerminalWidth, formatWindow } from "@/text-utils";
+import { fitToTerminalWidth, formatWindow } from "@/text/utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
     Effect.tryPromise({
@@ -285,64 +283,6 @@ export const writeCommand = Command.make(
                 note(fitToTerminalWidth(agentResult.finalContent), "Final Content");
                 log.info(`Completed in ${agentResult.iterations} cycle(s)`);
             });
-
-            const shouldSave = yield* runPrompt(() =>
-                confirm({
-                    message: "Do you want to save this content to a file?",
-                }),
-            );
-
-            if (shouldSave) {
-                const filePath = yield* runPrompt(() =>
-                    text({
-                        message: "Enter the file path to save to:",
-                        placeholder: "sections/thesis.md",
-                        validate(value) {
-                            if (value.length === 0) return "Path is required!";
-                        },
-                    }),
-                );
-
-                const fileExists = yield* Effect.tryPromise({
-                    try: async () => {
-                        try {
-                            await fs.access(path.resolve(filePath));
-                            return true;
-                        } catch {
-                            return false;
-                        }
-                    },
-                    catch: () => false,
-                });
-
-                let contentToWrite = agentResult.finalContent;
-
-                if (fileExists) {
-                    const action = yield* runPrompt(() =>
-                        select({
-                            message: `File ${filePath} already exists. What would you like to do?`,
-                            options: [
-                                { value: "append", label: "Append to existing content" },
-                                { value: "overwrite", label: "Overwrite file" },
-                            ],
-                        }),
-                    );
-
-                    if (action === "append") {
-                        const current = yield* Effect.tryPromise({
-                            try: () => fs.readFile(path.resolve(filePath), "utf-8"),
-                            catch: () => null,
-                        });
-                        if (current) {
-                            contentToWrite = `${current}\n\n${agentResult.finalContent}`;
-                        }
-                    }
-                }
-
-                yield* Effect.sync(() => s.start("Saving file..."));
-                yield* agent.executeWrite(filePath, contentToWrite);
-                yield* Effect.sync(() => s.stop("File saved successfully!"));
-            }
 
             yield* Effect.sync(() => outro("Done! Happy writing."));
         }).pipe(

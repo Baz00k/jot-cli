@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { BunFileSystem } from "@effect/platform-bun";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { PromptReadError } from "@/domain/errors";
 import { promptPaths } from "@/prompts";
 
@@ -17,6 +17,11 @@ export interface WriterTaskInput {
 export interface ReviewerTaskInput {
     readonly goal: string;
     readonly draft: string;
+}
+
+export interface EditorTaskInput {
+    readonly goal: string;
+    readonly approvedContent: string;
 }
 
 export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
@@ -102,8 +107,50 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                     },
                 };
             }),
+
+            /**
+             * Get a function that renders editor task prompts.
+             */
+            getEditorTask: Effect.gen(function* () {
+                const systemPrompt = yield* loadRaw("editor");
+
+                return {
+                    system: systemPrompt,
+                    render: (input: EditorTaskInput): string => {
+                        return [
+                            "## Original Goal",
+                            input.goal,
+                            "",
+                            "## Approved Content",
+                            input.approvedContent,
+                            "",
+                            "Please apply the approved content to the project files using the available tools.",
+                            "You may need to create new files or edit existing ones.",
+                            "When you have finished applying the changes, provide a brief summary of the actions you took.",
+                        ].join("\n");
+                    },
+                };
+            }),
         };
     }),
     dependencies: [BunFileSystem.layer],
     accessors: true,
 }) {}
+
+export const TestPrompts = new Prompts({
+    get: () => Effect.succeed("prompt"),
+    getWriterTask: Effect.succeed({
+        render: (_: WriterTaskInput) => "prompt",
+        system: "system",
+    }),
+    getEditorTask: Effect.succeed({
+        render: (_: EditorTaskInput) => "prompt",
+        system: "system",
+    }),
+    getReviewerTask: Effect.succeed({
+        render: (_: ReviewerTaskInput) => "prompt",
+        system: "system",
+    }),
+});
+
+export const TestPromptsLayer = Layer.succeed(Prompts, TestPrompts);

@@ -1,6 +1,6 @@
 import { FileSystem, Path } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
-import { Effect, Ref, Schema } from "effect";
+import { Effect, Layer, Ref, Schema } from "effect";
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_MAX_AGENT_ITERATIONS } from "@/domain/constants";
 import { ConfigReadError, ConfigWriteError } from "@/domain/errors";
 
@@ -106,3 +106,20 @@ export class Config extends Effect.Service<Config>()("services/config", {
     dependencies: [BunContext.layer],
     accessors: true,
 }) {}
+
+export const TestConfig = new Config({
+    get: Effect.succeed(
+        new UserConfig({
+            openRouterApiKey: "test-api-key",
+            reviewerModel: "test-reviewer-model",
+            writerModel: "test-writer-model",
+            agentMaxIterations: DEFAULT_MAX_AGENT_ITERATIONS,
+            reasoning: true,
+            reasoningEffort: "high",
+        }),
+    ),
+    update: () => Effect.succeed(undefined),
+    location: "test",
+});
+
+export const TestConfigLayer = Layer.succeed(Config, TestConfig);

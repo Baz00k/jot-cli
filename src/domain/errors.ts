@@ -25,6 +25,11 @@ export class AgentStreamError extends Data.TaggedError("AgentStreamError")<{
     readonly message?: string;
 }> {}
 
+export class FileReadError extends Data.TaggedError("FileReadError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
 export class FileWriteError extends Data.TaggedError("FileWriteError")<{
     readonly cause: unknown;
     readonly message?: string;
@@ -38,7 +43,7 @@ export class MaxIterationsReached extends Data.TaggedError("MaxIterationsReached
 export class AgentLoopError extends Data.TaggedError("AgentLoopError")<{
     readonly cause: unknown;
     readonly message?: string;
-    readonly phase: "drafting" | "reviewing" | "user_feedback";
+    readonly phase: "drafting" | "reviewing" | "user_feedback" | "editing";
 }> {}
 
 export class NoUserActionPending extends Data.TaggedError("NoUserActionPending")<{
