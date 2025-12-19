@@ -1,17 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Chunk, Effect, Layer, Logger, LogLevel, Stream } from "effect";
+import { Chunk, Effect, Layer, Stream } from "effect";
 import type { MaxIterationsReached } from "@/domain/errors";
 import { Agent } from "@/services/agent";
-import { Config } from "@/services/config";
-import { Prompts } from "@/services/prompts";
+import { TestConfigLayer } from "@/services/config";
+import { TestAppLogger } from "@/services/logger";
+import { TestPromptsLayer } from "@/services/prompts";
 
-// Local definition matching the service's return type for tasks
-interface MockPromptTask {
-    render: (input: unknown) => string;
-    system: string;
-}
-
-// Mocks
 const mockStreamText = mock();
 const mockGenerateObject = mock();
 
@@ -39,36 +33,9 @@ describe("Agent Service", () => {
         mockGenerateObject.mockReset();
     });
 
-    const TestConfigLayer = Layer.succeed(
-        Config,
-        Config.of({
-            get: Effect.succeed({
-                openRouterApiKey: "test-key",
-                agentMaxIterations: 5,
-                writerModel: "writer",
-                reviewerModel: "reviewer",
-                reasoning: true,
-                reasoningEffort: "medium",
-            }),
-        } as unknown as Config),
+    const TestLayer = Agent.DefaultWithoutDependencies.pipe(
+        Layer.provideMerge(Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger)),
     );
-
-    const mockPromptTask = {
-        render: () => "prompt",
-        system: "system",
-    } as unknown as MockPromptTask;
-
-    const TestPromptsLayer = Layer.succeed(
-        Prompts,
-        Prompts.of({
-            get: (_type: unknown) => Effect.succeed("raw prompt"),
-            getWriterTask: Effect.succeed(mockPromptTask),
-            getReviewerTask: Effect.succeed(mockPromptTask),
-            getEditorTask: Effect.succeed(mockPromptTask),
-        } as unknown as Prompts),
-    );
-
-    const TestLayer = Layer.mergeAll(TestConfigLayer, TestPromptsLayer).pipe(Layer.provideMerge(Agent.Default));
 
     test("runs successful workflow (draft -> approve -> edit)", async () => {
         // 1. Drafting
@@ -112,7 +79,7 @@ describe("Agent Service", () => {
             expect(phases).toContain("UserActionRequired");
         });
 
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer), Logger.withMinimumLogLevel(LogLevel.None)));
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
 
     test("handles rejection loop (draft -> reject -> revise -> approve)", async () => {
@@ -157,7 +124,7 @@ describe("Agent Service", () => {
             expect(result.iterations).toBe(2);
         });
 
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer), Logger.withMinimumLogLevel(LogLevel.None)));
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
 
     test("stops at max iterations", async () => {
@@ -179,7 +146,7 @@ describe("Agent Service", () => {
             expect((result as MaxIterationsReached).iterations).toBe(2);
         });
 
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer), Logger.withMinimumLogLevel(LogLevel.None)));
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
 
     test("handles user rejection", async () => {
@@ -227,6 +194,6 @@ describe("Agent Service", () => {
             expect(result.iterations).toBe(2);
         });
 
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer), Logger.withMinimumLogLevel(LogLevel.None)));
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
 });
