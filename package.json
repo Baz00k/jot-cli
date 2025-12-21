@@ -35,6 +35,7 @@
         "dedent": "^1.7.1",
         "effect": "^3.19.12",
         "ignore": "^7.0.5",
-        "wrap-ansi": "^9.0.2"
+        "marked": "^16.0.0",
+        "marked-terminal": "^7.3.0"
     }
 }

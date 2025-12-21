@@ -8,7 +8,7 @@ import { WorkflowState } from "@/domain/workflow";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
-import { fitToTerminalWidth, formatWindow } from "@/text/utils";
+import { formatWindow, renderMarkdown, renderMarkdownSnippet } from "@/text/utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
     Effect.tryPromise({
@@ -42,8 +42,7 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
  */
 const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction, UserCancel | Error> =>
     Effect.gen(function* () {
-        const preview = draft.length > 1000 ? `${draft.slice(0, 1000)}...` : draft;
-        yield* Effect.sync(() => note(fitToTerminalWidth(preview), `Draft (Cycle ${cycle}) - Preview`));
+        yield* Effect.sync(() => note(renderMarkdownSnippet(draft), `Draft (Cycle ${cycle}) - Preview`));
 
         const action = yield* runPrompt(() =>
             select({
@@ -57,7 +56,7 @@ const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction
         );
 
         if (action === "view") {
-            yield* Effect.sync(() => note(fitToTerminalWidth(draft), "Full Draft"));
+            yield* Effect.sync(() => note(renderMarkdown(draft), "Full Draft"));
             // Re-prompt after viewing
             const finalAction = yield* runPrompt(() =>
                 select({
@@ -208,7 +207,7 @@ export const writeCommand = Command.make(
                                 } else {
                                     log.warn("AI review rejected");
                                     if (event.critique) {
-                                        note(fitToTerminalWidth(event.critique), "AI Critique");
+                                        note(renderMarkdownSnippet(event.critique), "AI Critique");
                                     }
                                 }
                             });
@@ -255,7 +254,7 @@ export const writeCommand = Command.make(
 
                             if (error.lastDraft) {
                                 yield* Effect.sync(() => {
-                                    note(fitToTerminalWidth(error.lastDraft ?? ""), "Last Draft");
+                                    note(renderMarkdownSnippet(error.lastDraft ?? ""), "Last Draft");
                                 });
 
                                 return {
@@ -280,7 +279,7 @@ export const writeCommand = Command.make(
 
             yield* Effect.sync(() => {
                 s.stop("Workflow complete");
-                note(fitToTerminalWidth(agentResult.finalContent), "Final Content");
+                note(renderMarkdown(agentResult.finalContent), "Final Content");
                 log.info(`Completed in ${agentResult.iterations} cycle(s)`);
             });
 

@@ -1,5 +1,35 @@
-import wrapAnsi from "wrap-ansi";
+import { marked } from "marked";
+import { markedTerminal } from "marked-terminal";
 import { STREAM_WINDOW_SIZE } from "@/domain/constants";
+
+marked.use(
+    markedTerminal({
+        width: Math.max(process.stdout.columns - 10, 1),
+        reflowText: true,
+    }),
+);
+
+/**
+ * Render markdown in terminal
+ */
+export const renderMarkdown = (content: string) => {
+    return marked.parse(content, { async: false }).trim();
+};
+
+/**
+ * Render snippet of markdown in terminal
+ * If text is less than 5 lines, display text in full
+ * If text is longer, display first 3 lines, (...), and a last line
+ */
+export const renderMarkdownSnippet = (content: string) => {
+    const render = renderMarkdown(content);
+    const lines = render.split("\n");
+    if (lines.length <= 5) {
+        return render;
+    }
+
+    return `${lines.slice(0, 3).join("\n")}\n\n(...)\n\n${lines[lines.length - 1]}`;
+};
 
 export const formatWindow = (content: string) => {
     // Replace all whitespace with single spaces to ensure single-line output
@@ -8,12 +38,6 @@ export const formatWindow = (content: string) => {
         return `...${cleanContent.slice(-STREAM_WINDOW_SIZE)}`;
     }
     return cleanContent;
-};
-
-export const fitToTerminalWidth = (content: string) => {
-    const terminalWidth = process.stdout.columns ?? 80;
-    const width = Math.max(Math.round(terminalWidth * 0.8 - 2), 1);
-    return wrapAnsi(content, width);
 };
 
 /**
