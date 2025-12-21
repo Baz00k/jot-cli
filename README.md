@@ -46,3 +46,15 @@ jot write "Draft a conclusion for the paper summarizing the key findings on LLM 
 - **Context Awareness**: Reads your project files to understand style and structure.
 - **Draft-Review-Refine Loop**: Ensures high-quality academic output.
 - **Cross-Platform Configuration**: Works seamlessly on Windows, macOS, and Linux.
+
+## Recommended Models
+
+This is a list of models that have been tested and found to work well with Jot CLI:
+
+- google/gemini-3-pro-preview
+- anthropic/claude-opus-4.5
+- google/gemini-3-flash-preview
+- openai/gpt-5.2-pro
+- x-ai/grok-4.1-fast
+- moonshotai/kimi-k2-thinking
+- z-ai/glm-4.6
