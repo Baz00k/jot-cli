@@ -46,3 +46,8 @@ Use Effect for error safety.
 - Use JSDoc comments for function parameters and return types
 - Use Markdown for documentation formatting
 - Do not create or update README.md or similar files unless specifically requested
+
+### Workflow
+
+Before completing every task, run `bun check:fix` to check for type errors and linting issues
+and `bun test` to ensure all tests pass.
