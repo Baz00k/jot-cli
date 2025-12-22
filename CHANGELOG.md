@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/Baz00k/jot-cli/compare/v0.2.0...v0.3.0) (2025-12-22)
+
+
+### Features
+
+* add cost tracking ([603e34b](https://github.com/Baz00k/jot-cli/commit/603e34bead429c7f28ab4d9cbedc97399b4d6c87))
+* **docs:** add section about recommended models ([0359015](https://github.com/Baz00k/jot-cli/commit/03590152a7b8e7d3027fcc37568066e4f8a1ca85))
+* render markdown from responses ([6a6537d](https://github.com/Baz00k/jot-cli/commit/6a6537d22e9a0228d9b35ceb59a9b4ed452159bf))
+
+
+### Bug Fixes
+
+* catch and properly handle AI streaming errors ([03bc5c2](https://github.com/Baz00k/jot-cli/commit/03bc5c26da8d54d5dd3e00a8b85eb64e7319467c))
+* improve agent prompts ([e3c1ffa](https://github.com/Baz00k/jot-cli/commit/e3c1ffa33fa258f938e0adecb7fb0ddd872d2c2b))
+* instruct agent to always save files ([9814109](https://github.com/Baz00k/jot-cli/commit/981410987f42f2284d884d748099ba5a978f1163))
+
 ## [0.2.0](https://github.com/Baz00k/jot-cli/compare/v0.1.0...v0.2.0) (2025-12-19)
 
 
