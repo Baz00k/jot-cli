@@ -2,7 +2,7 @@ import { cancel, intro, isCancel, log, note, outro, select, spinner, text } from
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Fiber, Option, Stream } from "effect";
 import { DEFAULT_MAX_AGENT_ITERATIONS, DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
-import { MaxIterationsReached, UserCancel } from "@/domain/errors";
+import { AgentLoopError, AIGenerationError, MaxIterationsReached, UserCancel } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
 import { WorkflowState } from "@/domain/workflow";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
@@ -240,39 +240,33 @@ export const writeCommand = Command.make(
 
             // Wait for the result, handling MaxIterationsReached specially to allow save
             const agentResult = yield* agentSession.result.pipe(
-                Effect.catchIf(
-                    (error): error is MaxIterationsReached => error instanceof MaxIterationsReached,
-                    (error) =>
-                        Effect.gen(function* () {
+                Effect.catchTag("MaxIterationsReached", (error) =>
+                    Effect.gen(function* () {
+                        yield* Effect.sync(() => {
+                            s.stop("Iteration limit reached");
+                            log.warn(`Maximum iterations (${error.iterations}) reached.`);
+                        });
+
+                        // Wait for remaining events to process
+                        yield* Fiber.join(eventProcessor);
+
+                        if (error.lastDraft) {
                             yield* Effect.sync(() => {
-                                s.stop("Iteration limit reached");
-                                log.warn(`Maximum iterations (${error.iterations}) reached.`);
+                                note(renderMarkdownSnippet(error.lastDraft ?? ""), "Last Draft");
                             });
 
-                            // Wait for remaining events to process
-                            yield* Fiber.join(eventProcessor);
+                            return {
+                                finalContent: error.lastDraft,
+                                iterations: error.iterations,
+                                state: WorkflowState.empty,
+                            } satisfies RunResult;
+                        }
 
-                            if (error.lastDraft) {
-                                yield* Effect.sync(() => {
-                                    note(renderMarkdownSnippet(error.lastDraft ?? ""), "Last Draft");
-                                });
-
-                                return {
-                                    finalContent: error.lastDraft,
-                                    iterations: error.iterations,
-                                    state: WorkflowState.empty,
-                                } satisfies RunResult;
-                            }
-
-                            // No draft to save - re-fail
-                            return yield* Effect.fail(error);
-                        }),
-                ),
-                Effect.tapError(() =>
-                    Effect.sync(() => {
-                        s.stop("An error occurred");
+                        // No draft to save - re-fail
+                        return yield* Effect.fail(error);
                     }),
                 ),
+                Effect.tapError(() => Effect.sync(() => s.stop())),
             );
 
             yield* Fiber.join(eventProcessor);
@@ -293,6 +287,19 @@ export const writeCommand = Command.make(
                 if (error instanceof MaxIterationsReached) {
                     // Only reaches here if no lastDraft was available (handled above otherwise)
                     log.error("No draft was available to save.");
+                    return Effect.void;
+                }
+                if (error instanceof AgentLoopError) {
+                    const cause = error.cause;
+                    if (cause instanceof AIGenerationError) {
+                        const statusInfo = cause.statusCode ? ` (status ${cause.statusCode})` : "";
+                        log.error(`AI generation failed${statusInfo}: ${cause.message}`);
+                        if (cause.isRetryable) {
+                            log.info("This error may be temporary. Please try again.");
+                        }
+                        return Effect.void;
+                    }
+                    log.error(`Agent error during ${error.phase}: ${error.message}`);
                     return Effect.void;
                 }
                 return Effect.fail(error);

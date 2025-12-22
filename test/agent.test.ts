@@ -129,7 +129,7 @@ describe("Agent Service", () => {
 
     test("stops at max iterations", async () => {
         // Setup infinite rejection loop
-        mockStreamText.mockReturnValue(createMockStream("Draft"));
+        mockStreamText.mockImplementation(() => createMockStream("Draft"));
         mockGenerateObject.mockReturnValue({
             object: { approved: false, critique: "Bad", reasoning: "Never ends" },
         });

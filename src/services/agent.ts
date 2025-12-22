@@ -5,6 +5,7 @@ import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/
 import {
     AgentLoopError,
     AgentStreamError,
+    AIGenerationError,
     MaxIterationsReached,
     NoUserActionPending,
     UserCancel,
@@ -86,103 +87,107 @@ const createModel = (
     });
 };
 
+const retryPolicy = Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3)));
+
+/**
+ * Wraps an effect with retry logic and maps errors to AgentLoopError.
+ * Only retries if the underlying AIGenerationError is retryable.
+ */
+const withRetryAndErrorMapping = <A>(
+    effect: Effect.Effect<A, AIGenerationError>,
+    phase: "drafting" | "reviewing" | "editing",
+): Effect.Effect<A, AgentLoopError> =>
+    effect.pipe(
+        Effect.retry({
+            schedule: retryPolicy,
+            while: (error) => error.isRetryable,
+        }),
+        Effect.mapError(
+            (error) =>
+                new AgentLoopError({
+                    cause: error,
+                    message: error.message,
+                    phase,
+                }),
+        ),
+    );
+
 const runStreamingGeneration = (
     params: Parameters<typeof streamText>[0],
     eventQueue: Queue.Queue<AgentEvent>,
     phase: "drafting" | "reviewing" | "editing",
-) =>
+): Effect.Effect<string, AgentLoopError> =>
     Effect.gen(function* () {
-        const response = streamText(params);
+        // Capture any streaming errors via the onError callback
+        // to avoid logging them to console
+        let streamError: unknown = null;
+
+        const response = yield* Effect.try({
+            try: () =>
+                streamText({
+                    ...params,
+                    onError: ({ error }) => {
+                        streamError = error;
+                    },
+                }),
+            catch: AIGenerationError.fromUnknown,
+        });
+
+        const accumulator = yield* Ref.make("");
+
+        if (streamError) {
+            return yield* Effect.fail(AIGenerationError.fromUnknown(streamError));
+        }
 
         yield* Stream.fromAsyncIterable(
             (async function* () {
                 yield* response.textStream;
             })(),
-            (error) => (error instanceof Error ? error : new Error(String(error))),
+            (error) => streamError ?? error,
         ).pipe(
             Stream.runForEach((chunk) =>
-                Queue.offer(eventQueue, {
-                    _tag: "StreamChunk",
-                    content: chunk,
-                    phase,
-                } as const),
+                Effect.all(
+                    [
+                        Queue.offer(eventQueue, {
+                            _tag: "StreamChunk",
+                            content: chunk,
+                            phase,
+                        } as const),
+                        Ref.update(accumulator, (acc) => acc + chunk),
+                    ],
+                    { discard: true },
+                ),
             ),
+            Effect.mapError((error) => AIGenerationError.fromUnknown(streamError ?? error)),
         );
 
-        // Get final text after stream completes
-        const text = yield* Effect.tryPromise({
-            try: () => response.text,
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
+        if (streamError) {
+            return yield* Effect.fail(AIGenerationError.fromUnknown(streamError));
+        }
+
+        const text = yield* Ref.get(accumulator);
 
         if (!text || text.trim().length === 0) {
-            return yield* Effect.fail(new Error("Generation failed: Empty response received."));
+            return yield* Effect.fail(
+                new AIGenerationError({
+                    cause: null,
+                    message: "Generation failed: Empty response received.",
+                    isRetryable: false,
+                }),
+            );
         }
 
         return text;
-    }).pipe(
-        Effect.retry({
-            schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
-            while: (error) => {
-                if (error instanceof Error && "isRetryable" in error) {
-                    return Boolean(error.isRetryable);
-                }
-                if (error instanceof Error && "statusCode" in error) {
-                    const status = Number(error.statusCode);
-                    if (typeof status === "number" && status >= 400 && status < 500) {
-                        return false;
-                    }
-                }
-                return true;
-            },
-        }),
-        Effect.mapError(
-            (error) =>
-                new AgentLoopError({
-                    cause: error,
-                    message: error instanceof Error ? error.message : String(error),
-                    phase,
-                }),
-        ),
-    );
+    }).pipe((effect) => withRetryAndErrorMapping(effect, phase));
 
 const runStructuredGeneration = (params: Parameters<typeof generateObject>[0]) =>
-    Effect.gen(function* () {
-        const result = yield* Effect.tryPromise({
-            try: async () => {
-                const response = await generateObject(params);
-                // Validate and decode using Effect Schema
-                return Schema.decodeUnknownSync(ReviewResult)(response.object);
-            },
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
-
-        return result;
-    }).pipe(
-        Effect.retry({
-            schedule: Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3))),
-            while: (error) => {
-                if (error instanceof Error && "isRetryable" in error) {
-                    return Boolean(error.isRetryable);
-                }
-                if (error instanceof Error && "statusCode" in error) {
-                    const status = Number(error.statusCode);
-                    if (typeof status === "number" && status >= 400 && status < 500) {
-                        return false;
-                    }
-                }
-                return true;
-            },
-        }),
-        Effect.mapError(
-            (error) =>
-                new AgentLoopError({
-                    cause: error,
-                    message: error instanceof Error ? error.message : String(error),
-                    phase: "reviewing",
-                }),
-        ),
-    );
+    Effect.tryPromise({
+        try: async () => {
+            const response = await generateObject(params);
+            return Schema.decodeUnknownSync(ReviewResult)(response.object);
+        },
+        catch: AIGenerationError.fromUnknown,
+    }).pipe((effect) => withRetryAndErrorMapping(effect, "reviewing"));
 
 export class Agent extends Effect.Service<Agent>()("services/agent", {
     effect: Effect.gen(function* () {
