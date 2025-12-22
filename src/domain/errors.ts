@@ -38,6 +38,7 @@ export class FileWriteError extends Data.TaggedError("FileWriteError")<{
 export class MaxIterationsReached extends Data.TaggedError("MaxIterationsReached")<{
     readonly iterations: number;
     readonly lastDraft?: string;
+    readonly totalCost?: number;
 }> {}
 
 export class AgentLoopError extends Data.TaggedError("AgentLoopError")<{

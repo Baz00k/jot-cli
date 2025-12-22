@@ -259,6 +259,7 @@ export const writeCommand = Command.make(
                                 finalContent: error.lastDraft,
                                 iterations: error.iterations,
                                 state: WorkflowState.empty,
+                                totalCost: error.totalCost ?? 0,
                             } satisfies RunResult;
                         }
 
@@ -275,6 +276,7 @@ export const writeCommand = Command.make(
                 s.stop("Workflow complete");
                 note(renderMarkdown(agentResult.finalContent), "Final Content");
                 log.info(`Completed in ${agentResult.iterations} cycle(s)`);
+                log.info(`Total cost: $${agentResult.totalCost.toFixed(6)}`);
             });
 
             yield* Effect.sync(() => outro("Done! Happy writing."));

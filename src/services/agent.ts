@@ -70,6 +70,16 @@ export interface RunResult {
     readonly finalContent: string;
     readonly iterations: number;
     readonly state: WorkflowState;
+    readonly totalCost: number;
+}
+
+interface OpenRouterMetadata {
+    readonly openrouter?: {
+        readonly usage?: {
+            readonly cost?: number;
+            readonly totalTokens?: number;
+        };
+    };
 }
 
 const createModel = (
@@ -83,6 +93,9 @@ const createModel = (
         reasoning: {
             effort: reasoningEffort,
             enabled: reasoning,
+        },
+        usage: {
+            include: true,
         },
     });
 };
@@ -116,7 +129,7 @@ const runStreamingGeneration = (
     params: Parameters<typeof streamText>[0],
     eventQueue: Queue.Queue<AgentEvent>,
     phase: "drafting" | "reviewing" | "editing",
-): Effect.Effect<string, AgentLoopError> =>
+): Effect.Effect<{ content: string; cost: number }, AgentLoopError> =>
     Effect.gen(function* () {
         // Capture any streaming errors via the onError callback
         // to avoid logging them to console
@@ -177,14 +190,28 @@ const runStreamingGeneration = (
             );
         }
 
-        return text;
+        let cost = 0;
+        const metadata = (yield* Effect.tryPromise(() => response.providerMetadata).pipe(
+            Effect.orElseSucceed(() => undefined),
+        )) as OpenRouterMetadata | undefined;
+
+        if (metadata?.openrouter?.usage) {
+            cost = metadata.openrouter.usage.cost || 0;
+        }
+
+        return { content: text, cost };
     }).pipe((effect) => withRetryAndErrorMapping(effect, phase));
 
 const runStructuredGeneration = (params: Parameters<typeof generateObject>[0]) =>
     Effect.tryPromise({
         try: async () => {
             const response = await generateObject(params);
-            return Schema.decodeUnknownSync(ReviewResult)(response.object);
+            const metadata = response.providerMetadata as OpenRouterMetadata | undefined;
+            const cost = metadata?.openrouter?.usage?.cost || 0;
+            return {
+                result: Schema.decodeUnknownSync(ReviewResult)(response.object),
+                cost,
+            };
         },
         catch: AIGenerationError.fromUnknown,
     }).pipe((effect) => withRetryAndErrorMapping(effect, "reviewing"));
@@ -251,6 +278,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     // Initialize workflow state
                     const stateRef = yield* Ref.make(WorkflowState.empty);
+                    const totalCostRef = yield* Ref.make(0);
 
                     // The recursive step function
                     const step = (): Effect.Effect<
@@ -266,6 +294,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             // 1. Safety Check: Max Iterations
                             if (state.iterationCount >= maxIterations) {
                                 const lastDraft = Option.getOrElse(state.latestDraft, () => "");
+                                const totalCost = yield* Ref.get(totalCostRef);
                                 yield* Queue.offer(eventQueue, {
                                     _tag: "IterationLimitReached",
                                     iterations: state.iterationCount,
@@ -275,6 +304,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     new MaxIterationsReached({
                                         iterations: state.iterationCount,
                                         lastDraft,
+                                        totalCost,
                                     }),
                                 );
                             }
@@ -302,7 +332,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                         : undefined,
                             });
 
-                            const newContent = yield* runStreamingGeneration(
+                            const { content: newContent, cost: draftCost } = yield* runStreamingGeneration(
                                 {
                                     model: writerModel,
                                     tools: explore_tools,
@@ -313,6 +343,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 eventQueue,
                                 "drafting",
                             );
+                            yield* Ref.update(totalCostRef, (c) => c + draftCost);
 
                             // Update state with new draft
                             yield* Ref.update(stateRef, (s) =>
@@ -346,12 +377,13 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 draft: newContent,
                             });
 
-                            const reviewResult = yield* runStructuredGeneration({
+                            const { result: reviewResult, cost: reviewCost } = yield* runStructuredGeneration({
                                 model: reviewerModel,
                                 system: reviewerTask.system,
                                 prompt: reviewPrompt,
                                 schema: reviewResultJsonSchema,
                             });
+                            yield* Ref.update(totalCostRef, (c) => c + reviewCost);
 
                             yield* Effect.logDebug("Review complete", { approved: reviewResult.approved });
 
@@ -433,7 +465,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 approvedContent: newContent,
                             });
 
-                            yield* runStreamingGeneration(
+                            const { content: _editOutput, cost: editCost } = yield* runStreamingGeneration(
                                 {
                                     model: writerModel,
                                     tools: edit_tools,
@@ -444,6 +476,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 eventQueue,
                                 "editing",
                             );
+                            yield* Ref.update(totalCostRef, (c) => c + editCost);
 
                             // Success - workflow complete
                             return newContent;
@@ -462,10 +495,12 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         result: Effect.gen(function* () {
                             const content = yield* Fiber.join(workflowFiber);
                             const finalState = yield* Ref.get(stateRef);
+                            const totalCost = yield* Ref.get(totalCostRef);
                             return {
                                 finalContent: content,
                                 iterations: finalState.iterationCount,
                                 state: finalState,
+                                totalCost,
                             } satisfies RunResult;
                         }),
                         /**
