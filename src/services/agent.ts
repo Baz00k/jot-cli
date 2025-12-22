@@ -111,6 +111,11 @@ const withRetryAndErrorMapping = <A>(
     phase: "drafting" | "reviewing" | "editing",
 ): Effect.Effect<A, AgentLoopError> =>
     effect.pipe(
+        Effect.tapError((error) =>
+            error.isRetryable
+                ? Effect.logInfo(`Retrying AI generation in ${phase} phase due to: ${error.message}`)
+                : Effect.succeed(undefined),
+        ),
         Effect.retry({
             schedule: retryPolicy,
             while: (error) => error.isRetryable,
