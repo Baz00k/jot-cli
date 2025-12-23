@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/Baz00k/jot-cli/compare/v0.3.0...v0.4.0) (2025-12-23)
+
+
+### Features
+
+* **docs:** update to newest glm model ([bed3d72](https://github.com/Baz00k/jot-cli/commit/bed3d72aa6165b0c9f5b4962b4d087dbdf344458))
+* more robust workflow error handling, ability to save unfinished draft if agent fails ([3e94ac0](https://github.com/Baz00k/jot-cli/commit/3e94ac0ada606184684e36ce9be3bdf63e8d2c52))
+
+
+### Bug Fixes
+
+* move instructions from system prompt to task prompt ([247a231](https://github.com/Baz00k/jot-cli/commit/247a23163de1df163ed178f1539d63078e498350))
+
 ## [0.3.0](https://github.com/Baz00k/jot-cli/compare/v0.2.0...v0.3.0) (2025-12-22)
 
 
