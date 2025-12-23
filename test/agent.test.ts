@@ -197,29 +197,50 @@ describe("Agent Service", () => {
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
 
-    test("handles empty response with retry and preserves last draft", async () => {
-        // 1. Initial Draft (successful)
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft 1"));
-        // 2. Review 1 (Rejected to trigger revision)
+    test("getCurrentState returns draft and iteration info", async () => {
+        // 1. Draft
+        mockStreamText.mockReturnValueOnce(createMockStream("Draft content"));
+        // 2. Review (Rejected to continue)
         mockGenerateObject.mockReturnValueOnce({
-            object: { approved: false, critique: "Needs improvement", reasoning: "Try again" },
+            object: { approved: false, critique: "Bad", reasoning: "Try again" },
         });
-        // 3. Revision attempt - empty response (will retry and fail)
-        mockStreamText.mockReturnValueOnce(createMockStream(""));
+        // 3. We'll get state mid-workflow
+        mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
+        // 4. Review (Approved)
+        mockGenerateObject.mockReturnValueOnce({
+            object: { approved: true, critique: "Good", reasoning: "Ok" },
+        });
+        // 5. Editing
+        mockStreamText.mockReturnValueOnce(createMockStream("Edit"));
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
             const runner = yield* agent.run({ prompt: "Do work" });
 
-            // Consume events
-            yield* Stream.runCollect(runner.events);
+            let capturedState: Awaited<ReturnType<typeof runner.getCurrentState>> | null = null;
 
-            // Should fail with MaxIterationsReached containing the last draft
-            const error = yield* runner.result.pipe(Effect.flip);
+            // Capture state when we see the first draft complete
+            yield* Stream.runCollect(
+                runner.events.pipe(
+                    Stream.tap((event) =>
+                        Effect.gen(function* () {
+                            if (event._tag === "DraftComplete" && !capturedState) {
+                                capturedState = yield* runner.getCurrentState();
+                            }
+                            if (event._tag === "UserActionRequired") {
+                                yield* runner.submitUserAction({ type: "approve" });
+                            }
+                        }),
+                    ),
+                ),
+            );
 
-            expect(error._tag).toBe("MaxIterationsReached");
-            expect((error as MaxIterationsReached).lastDraft).toBe("Draft 1");
-            expect((error as MaxIterationsReached).iterations).toBe(1);
+            yield* runner.result;
+
+            // Verify state was captured
+            expect(capturedState).toBeTruthy();
+            expect(capturedState?.iterations).toBe(1);
+            expect(capturedState?.lastDraft).toBeTruthy();
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));

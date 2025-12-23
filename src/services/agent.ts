@@ -485,42 +485,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             // Success - workflow complete
                             return newContent;
-                        }).pipe(
-                            Effect.catchTag("AgentLoopError", (error) =>
-                                Effect.gen(function* () {
-                                    // If we have a previous draft and generation fails after retries,
-                                    // convert to MaxIterationsReached so the user can save their work.
-                                    // This can happen in any phase:
-                                    // - Drafting: revision attempt fails, preserve previous draft
-                                    // - Reviewing: review generation fails, preserve current draft
-                                    // - Editing: edit generation fails, preserve approved draft
-                                    const state = yield* Ref.get(stateRef);
-                                    const lastDraft = Option.getOrUndefined(state.latestDraft);
-
-                                    if (lastDraft) {
-                                        const totalCost = yield* Ref.get(totalCostRef);
-                                        yield* Effect.logWarning(
-                                            `Generation failed in ${error.phase} phase after retries, preserving last draft from iteration ${state.iterationCount}`,
-                                        );
-                                        yield* Queue.offer(eventQueue, {
-                                            _tag: "IterationLimitReached",
-                                            iterations: state.iterationCount,
-                                            lastDraft,
-                                        });
-                                        return yield* Effect.fail(
-                                            new MaxIterationsReached({
-                                                iterations: state.iterationCount,
-                                                lastDraft,
-                                                totalCost,
-                                            }),
-                                        );
-                                    }
-
-                                    // No previous draft, re-throw the original error
-                                    return yield* Effect.fail(error);
-                                }),
-                            ),
-                        );
+                        });
 
                     // Fork the workflow
                     const workflowFiber = yield* step().pipe(
@@ -580,6 +545,21 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 yield* Fiber.interrupt(workflowFiber);
                                 // Ensure queue is shutdown even if ensuring didn't run due to interruption
                                 yield* Queue.shutdown(eventQueue);
+                            }),
+                        /**
+                         * Get the current workflow state and cost.
+                         * Useful for retrieving the last draft when an error occurs.
+                         */
+                        getCurrentState: () =>
+                            Effect.gen(function* () {
+                                const state = yield* Ref.get(stateRef);
+                                const totalCost = yield* Ref.get(totalCostRef);
+                                return {
+                                    state,
+                                    totalCost,
+                                    lastDraft: state.latestDraft,
+                                    iterations: state.iterationCount,
+                                };
                             }),
                     };
                 }),
