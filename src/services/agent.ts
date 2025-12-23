@@ -488,15 +488,19 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         }).pipe(
                             Effect.catchTag("AgentLoopError", (error) =>
                                 Effect.gen(function* () {
-                                    // If we have a previous draft, convert to MaxIterationsReached
-                                    // so the user can save their work
+                                    // If we have a previous draft and generation fails after retries,
+                                    // convert to MaxIterationsReached so the user can save their work.
+                                    // This can happen in any phase:
+                                    // - Drafting: revision attempt fails, preserve previous draft
+                                    // - Reviewing: review generation fails, preserve current draft
+                                    // - Editing: edit generation fails, preserve approved draft
                                     const state = yield* Ref.get(stateRef);
                                     const lastDraft = Option.getOrUndefined(state.latestDraft);
 
                                     if (lastDraft) {
                                         const totalCost = yield* Ref.get(totalCostRef);
                                         yield* Effect.logWarning(
-                                            `Generation failed after retries, but preserving last draft from iteration ${state.iterationCount}`,
+                                            `Generation failed in ${error.phase} phase after retries, preserving last draft from iteration ${state.iterationCount}`,
                                         );
                                         yield* Queue.offer(eventQueue, {
                                             _tag: "IterationLimitReached",
