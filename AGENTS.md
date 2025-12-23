@@ -51,3 +51,4 @@ Use Effect for error safety.
 
 Before completing every task, run `bun check:fix` to check for type errors and linting issues
 and `bun test` to ensure all tests pass.
+NEVER commit any changes without explicit user request.
