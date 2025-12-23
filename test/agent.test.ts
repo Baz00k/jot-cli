@@ -196,4 +196,32 @@ describe("Agent Service", () => {
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
+
+    test("handles empty response with retry and preserves last draft", async () => {
+        // 1. Initial Draft (successful)
+        mockStreamText.mockReturnValueOnce(createMockStream("Draft 1"));
+        // 2. Review 1 (Rejected to trigger revision)
+        mockGenerateObject.mockReturnValueOnce({
+            object: { approved: false, critique: "Needs improvement", reasoning: "Try again" },
+        });
+        // 3. Revision attempt - empty response (will retry and fail)
+        mockStreamText.mockReturnValueOnce(createMockStream(""));
+
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            const runner = yield* agent.run({ prompt: "Do work" });
+
+            // Consume events
+            yield* Stream.runCollect(runner.events);
+
+            // Should fail with MaxIterationsReached containing the last draft
+            const error = yield* runner.result.pipe(Effect.flip);
+
+            expect(error._tag).toBe("MaxIterationsReached");
+            expect((error as MaxIterationsReached).lastDraft).toBe("Draft 1");
+            expect((error as MaxIterationsReached).iterations).toBe(1);
+        });
+
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
+    });
 });
