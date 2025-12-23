@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Chunk, Effect, Layer, Stream } from "effect";
+import { Chunk, Effect, Layer, Ref, Stream } from "effect";
 import type { MaxIterationsReached } from "@/domain/errors";
 import { Agent } from "@/services/agent";
 import { TestConfigLayer } from "@/services/config";
@@ -192,6 +192,62 @@ describe("Agent Service", () => {
             const result = yield* runner.result;
             expect(result.finalContent).toBe("Draft 2");
             expect(result.iterations).toBe(2);
+        });
+
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
+    });
+
+    test("getCurrentState returns draft and iteration info", async () => {
+        // 1. Draft
+        mockStreamText.mockReturnValueOnce(createMockStream("Draft content"));
+        // 2. Review (Rejected to continue)
+        mockGenerateObject.mockReturnValueOnce({
+            object: { approved: false, critique: "Bad", reasoning: "Try again" },
+        });
+        // 3. We'll get state mid-workflow
+        mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
+        // 4. Review (Approved)
+        mockGenerateObject.mockReturnValueOnce({
+            object: { approved: true, critique: "Good", reasoning: "Ok" },
+        });
+        // 5. Editing
+        mockStreamText.mockReturnValueOnce(createMockStream("Edit"));
+
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            const runner = yield* agent.run({ prompt: "Do work" });
+
+            const stateRef = yield* Ref.make<
+                Effect.Effect.Success<ReturnType<typeof runner.getCurrentState>> | undefined
+            >(undefined);
+
+            // Capture state when we see the first draft complete
+            yield* Stream.runCollect(
+                runner.events.pipe(
+                    Stream.tap((event) =>
+                        Effect.gen(function* () {
+                            if (event._tag === "DraftComplete") {
+                                const current = yield* Ref.get(stateRef);
+                                if (!current) {
+                                    const state = yield* runner.getCurrentState();
+                                    yield* Ref.set(stateRef, state);
+                                }
+                            }
+                            if (event._tag === "UserActionRequired") {
+                                yield* runner.submitUserAction({ type: "approve" });
+                            }
+                        }),
+                    ),
+                ),
+            );
+
+            yield* runner.result;
+
+            // Verify state was captured
+            const capturedState = yield* Ref.get(stateRef);
+            expect(capturedState).toBeTruthy();
+            expect(capturedState?.workflowState.iterationCount).toBe(1);
+            expect(capturedState?.workflowState.latestDraft).toBeTruthy();
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));

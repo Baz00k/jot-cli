@@ -190,7 +190,7 @@ const runStreamingGeneration = (
                 new AIGenerationError({
                     cause: null,
                     message: "Generation failed: Empty response received.",
-                    isRetryable: false,
+                    isRetryable: true,
                 }),
             );
         }
@@ -508,6 +508,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 totalCost,
                             } satisfies RunResult;
                         }),
+
                         /**
                          * Submit user action to continue the workflow.
                          */
@@ -533,6 +534,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 }
                                 yield* Deferred.succeed(deferred, action);
                             }),
+
                         /**
                          * Cancel the workflow and cleanup resources
                          */
@@ -545,6 +547,20 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 yield* Fiber.interrupt(workflowFiber);
                                 // Ensure queue is shutdown even if ensuring didn't run due to interruption
                                 yield* Queue.shutdown(eventQueue);
+                            }),
+
+                        /**
+                         * Get the current workflow state and cost.
+                         * Useful for retrieving the last draft when an error occurs.
+                         */
+                        getCurrentState: () =>
+                            Effect.gen(function* () {
+                                const workflowState = yield* Ref.get(stateRef);
+                                const totalCost = yield* Ref.get(totalCostRef);
+                                return {
+                                    workflowState,
+                                    totalCost,
+                                };
                             }),
                     };
                 }),

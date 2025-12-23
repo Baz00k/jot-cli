@@ -1,10 +1,18 @@
 import { cancel, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
+import { FileSystem, Path } from "@effect/platform";
+import { BunContext } from "@effect/platform-bun";
 import { Effect, Fiber, Option, Stream } from "effect";
+import {
+    displayError,
+    displayLastDraft,
+    displaySaveSuccess,
+    shouldRethrow,
+    type WorkflowSnapshot,
+} from "@/commands/utils/workflow-errors";
 import { DEFAULT_MAX_AGENT_ITERATIONS, DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
-import { AgentLoopError, AIGenerationError, MaxIterationsReached, UserCancel } from "@/domain/errors";
+import { UserCancel, WorkflowErrorHandled } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
-import { WorkflowState } from "@/domain/workflow";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
@@ -91,6 +99,88 @@ const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction
         }
 
         return { type: "approve" as const };
+    });
+
+/**
+ * Prompt the user to save a draft to a file.
+ * Returns the file path if the user chooses to save, or undefined if they decline.
+ */
+const promptToSaveDraft = (
+    draft: string,
+): Effect.Effect<string | undefined, Error | UserCancel, FileSystem.FileSystem | Path.Path> =>
+    Effect.gen(function* () {
+        const shouldSave = yield* runPrompt(() =>
+            select({
+                message: "Would you like to save the draft to a file?",
+                options: [
+                    { value: "yes", label: "Yes, save to file" },
+                    { value: "no", label: "No, discard" },
+                ],
+            }),
+        );
+
+        if (shouldSave === "no") {
+            return undefined;
+        }
+
+        const defaultFileName = `draft-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)}.md`;
+        const filePath = yield* runPrompt(() =>
+            text({
+                message: "Enter the file path to save the draft:",
+                placeholder: defaultFileName,
+                defaultValue: defaultFileName,
+            }),
+        );
+
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fullPath = path.resolve(filePath);
+
+        yield* fs
+            .writeFileString(fullPath, draft)
+            .pipe(Effect.mapError((error) => new Error(`Failed to save file: ${String(error)}`)));
+
+        return fullPath;
+    });
+
+/**
+ * Handle workflow errors by displaying error info and offering to save any draft.
+ * Returns WorkflowErrorHandled to signal graceful exit, or rethrows UserCancel.
+ */
+const handleWorkflowError = (
+    error: unknown,
+    getSnapshot: () => Effect.Effect<WorkflowSnapshot>,
+    s: ReturnType<typeof spinner>,
+): Effect.Effect<RunResult, UserCancel | WorkflowErrorHandled, FileSystem.FileSystem | Path.Path> =>
+    Effect.gen(function* () {
+        yield* Effect.sync(() => s.stop());
+
+        // User cancellation should propagate to top-level handler
+        if (shouldRethrow(error)) {
+            return yield* Effect.fail(error);
+        }
+
+        // Get current state and display error
+        const snapshot = yield* getSnapshot();
+        yield* displayError(error);
+
+        // Offer to save draft if one exists
+        const draftOption = yield* displayLastDraft(snapshot);
+
+        if (Option.isSome(draftOption)) {
+            const savedPath = yield* promptToSaveDraft(draftOption.value).pipe(
+                Effect.provide(BunContext.layer),
+                Effect.catchAll(() => Effect.succeed(undefined)),
+            );
+
+            if (savedPath) {
+                yield* displaySaveSuccess(savedPath, snapshot);
+                return yield* Effect.fail(new WorkflowErrorHandled({ savedPath }));
+            }
+            yield* Effect.sync(() => log.info("Draft not saved."));
+        }
+
+        return yield* Effect.fail(new WorkflowErrorHandled({}));
     });
 
 export const writeCommand = Command.make(
@@ -238,36 +328,9 @@ export const writeCommand = Command.make(
             // Process events in the background
             const eventProcessor = yield* agentSession.events.pipe(Stream.runForEach(processEvent), Effect.fork);
 
-            // Wait for the result, handling MaxIterationsReached specially to allow save
+            // Wait for the result - handle errors inline where we have access to agentSession
             const agentResult = yield* agentSession.result.pipe(
-                Effect.catchTag("MaxIterationsReached", (error) =>
-                    Effect.gen(function* () {
-                        yield* Effect.sync(() => {
-                            s.stop("Iteration limit reached");
-                            log.warn(`Maximum iterations (${error.iterations}) reached.`);
-                        });
-
-                        // Wait for remaining events to process
-                        yield* Fiber.join(eventProcessor);
-
-                        if (error.lastDraft) {
-                            yield* Effect.sync(() => {
-                                note(renderMarkdownSnippet(error.lastDraft ?? ""), "Last Draft");
-                            });
-
-                            return {
-                                finalContent: error.lastDraft,
-                                iterations: error.iterations,
-                                state: WorkflowState.empty,
-                                totalCost: error.totalCost ?? 0,
-                            } satisfies RunResult;
-                        }
-
-                        // No draft to save - re-fail
-                        return yield* Effect.fail(error);
-                    }),
-                ),
-                Effect.tapError(() => Effect.sync(() => s.stop())),
+                Effect.catchAll((error) => handleWorkflowError(error, () => agentSession.getCurrentState(), s)),
             );
 
             yield* Fiber.join(eventProcessor);
@@ -286,22 +349,7 @@ export const writeCommand = Command.make(
                     cancel("Operation cancelled.");
                     return Effect.void;
                 }
-                if (error instanceof MaxIterationsReached) {
-                    // Only reaches here if no lastDraft was available (handled above otherwise)
-                    log.error("No draft was available to save.");
-                    return Effect.void;
-                }
-                if (error instanceof AgentLoopError) {
-                    const cause = error.cause;
-                    if (cause instanceof AIGenerationError) {
-                        const statusInfo = cause.statusCode ? ` (status ${cause.statusCode})` : "";
-                        log.error(`AI generation failed${statusInfo}: ${cause.message}`);
-                        if (cause.isRetryable) {
-                            log.info("This error may be temporary. Please try again.");
-                        }
-                        return Effect.void;
-                    }
-                    log.error(`Agent error during ${error.phase}: ${error.message}`);
+                if (error instanceof WorkflowErrorHandled) {
                     return Effect.void;
                 }
                 return Effect.fail(error);
