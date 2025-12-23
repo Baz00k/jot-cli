@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Chunk, Effect, Layer, Stream } from "effect";
+import { Chunk, Effect, Layer, Ref, Stream } from "effect";
 import type { MaxIterationsReached } from "@/domain/errors";
 import { Agent } from "@/services/agent";
 import { TestConfigLayer } from "@/services/config";
@@ -217,15 +217,27 @@ describe("Agent Service", () => {
             const agent = yield* Agent;
             const runner = yield* agent.run({ prompt: "Do work" });
 
-            let capturedState: Awaited<ReturnType<typeof runner.getCurrentState>> | null = null;
+            const stateRef = yield* Ref.make<
+                | {
+                      state: unknown;
+                      totalCost: number;
+                      lastDraft: unknown;
+                      iterations: number;
+                  }
+                | undefined
+            >(undefined);
 
             // Capture state when we see the first draft complete
             yield* Stream.runCollect(
                 runner.events.pipe(
                     Stream.tap((event) =>
                         Effect.gen(function* () {
-                            if (event._tag === "DraftComplete" && !capturedState) {
-                                capturedState = yield* runner.getCurrentState();
+                            if (event._tag === "DraftComplete") {
+                                const current = yield* Ref.get(stateRef);
+                                if (!current) {
+                                    const state = yield* runner.getCurrentState();
+                                    yield* Ref.set(stateRef, state);
+                                }
                             }
                             if (event._tag === "UserActionRequired") {
                                 yield* runner.submitUserAction({ type: "approve" });
@@ -238,6 +250,7 @@ describe("Agent Service", () => {
             yield* runner.result;
 
             // Verify state was captured
+            const capturedState = yield* Ref.get(stateRef);
             expect(capturedState).toBeTruthy();
             expect(capturedState?.iterations).toBe(1);
             expect(capturedState?.lastDraft).toBeTruthy();
