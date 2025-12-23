@@ -126,6 +126,7 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             "",
                             "Please apply the approved content to the project files using the available tools.",
                             "You may need to create new files or edit existing ones.",
+                            "You HAVE TO save the changes, if none of the files seem fitting, just save it in the CWD with a descriptive name.",
                             "When you have finished, provide a brief summary of the changes.",
                         ].join("\n");
                     },
