@@ -292,15 +292,7 @@ export const writeCommand = Command.make(
                         }
 
                         // For any error, try to get the current state and offer to save the draft
-                        const currentState = yield* agentSession.getCurrentState().pipe(
-                            Effect.catchAll(() =>
-                                Effect.succeed({
-                                    lastDraft: Option.none<string>(),
-                                    iterations: 0,
-                                    totalCost: 0,
-                                }),
-                            ),
-                        );
+                        const currentState = yield* agentSession.getCurrentState();
 
                         // Display the error message
                         if (error instanceof MaxIterationsReached) {
@@ -327,7 +319,7 @@ export const writeCommand = Command.make(
                         }
 
                         // Check if there's a draft to save
-                        const lastDraft = Option.getOrUndefined(currentState.lastDraft);
+                        const lastDraft = Option.getOrUndefined(currentState.workflowState.latestDraft);
                         if (lastDraft && lastDraft.trim().length > 0) {
                             yield* Effect.sync(() => {
                                 note(renderMarkdownSnippet(lastDraft), "Last Draft Before Error");
@@ -341,8 +333,8 @@ export const writeCommand = Command.make(
                             if (savedPath) {
                                 yield* Effect.sync(() => {
                                     log.success(`Draft saved to: ${savedPath}`);
-                                    if (currentState.iterations > 0) {
-                                        log.info(`Completed ${currentState.iterations} iteration(s)`);
+                                    if (currentState.workflowState.iterationCount > 0) {
+                                        log.info(`Completed ${currentState.workflowState.iterationCount} iteration(s)`);
                                     }
                                     if (currentState.totalCost > 0) {
                                         log.info(`Total cost: $${currentState.totalCost.toFixed(6)}`);

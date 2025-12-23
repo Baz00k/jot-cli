@@ -218,13 +218,7 @@ describe("Agent Service", () => {
             const runner = yield* agent.run({ prompt: "Do work" });
 
             const stateRef = yield* Ref.make<
-                | {
-                      state: unknown;
-                      totalCost: number;
-                      lastDraft: unknown;
-                      iterations: number;
-                  }
-                | undefined
+                Effect.Effect.Success<ReturnType<typeof runner.getCurrentState>> | undefined
             >(undefined);
 
             // Capture state when we see the first draft complete
@@ -252,8 +246,8 @@ describe("Agent Service", () => {
             // Verify state was captured
             const capturedState = yield* Ref.get(stateRef);
             expect(capturedState).toBeTruthy();
-            expect(capturedState?.iterations).toBe(1);
-            expect(capturedState?.lastDraft).toBeTruthy();
+            expect(capturedState?.workflowState.iterationCount).toBe(1);
+            expect(capturedState?.workflowState.latestDraft).toBeTruthy();
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));

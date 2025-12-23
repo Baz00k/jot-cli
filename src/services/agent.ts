@@ -508,6 +508,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 totalCost,
                             } satisfies RunResult;
                         }),
+
                         /**
                          * Submit user action to continue the workflow.
                          */
@@ -533,6 +534,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 }
                                 yield* Deferred.succeed(deferred, action);
                             }),
+
                         /**
                          * Cancel the workflow and cleanup resources
                          */
@@ -546,19 +548,18 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 // Ensure queue is shutdown even if ensuring didn't run due to interruption
                                 yield* Queue.shutdown(eventQueue);
                             }),
+
                         /**
                          * Get the current workflow state and cost.
                          * Useful for retrieving the last draft when an error occurs.
                          */
                         getCurrentState: () =>
                             Effect.gen(function* () {
-                                const state = yield* Ref.get(stateRef);
+                                const workflowState = yield* Ref.get(stateRef);
                                 const totalCost = yield* Ref.get(totalCostRef);
                                 return {
-                                    state,
+                                    workflowState,
                                     totalCost,
-                                    lastDraft: state.latestDraft,
-                                    iterations: state.iterationCount,
                                 };
                             }),
                     };
