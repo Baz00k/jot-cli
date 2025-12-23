@@ -57,4 +57,4 @@ This is a list of models that have been tested and found to work well with Jot C
 - openai/gpt-5.2-pro
 - x-ai/grok-4.1-fast
 - moonshotai/kimi-k2-thinking
-- z-ai/glm-4.6
+- z-ai/glm-4.7
