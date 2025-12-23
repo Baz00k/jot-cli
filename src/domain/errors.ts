@@ -138,3 +138,11 @@ export class AIGenerationError extends Data.TaggedError("AIGenerationError")<{
 export class NoUserActionPending extends Data.TaggedError("NoUserActionPending")<{
     readonly message?: string;
 }> {}
+
+/**
+ * Marker error indicating that a workflow error was handled and displayed to the user.
+ * Used to signal graceful exit without re-displaying error messages.
+ */
+export class WorkflowErrorHandled extends Data.TaggedError("WorkflowErrorHandled")<{
+    readonly savedPath?: string;
+}> {}
