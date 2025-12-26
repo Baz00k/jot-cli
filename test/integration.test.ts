@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 import { listFilesTool, searchFilesTool } from "@/tools";
 
 describe("Integration Tests", () => {
@@ -53,7 +53,7 @@ dist/
         await fs.writeFile(path.join(testDir, ".env"), "API_KEY=secret\n");
 
         // Test list_files respects gitignore
-        const listResult = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolCallOptions)) as {
+        const listResult = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolExecutionOptions)) as {
             name: string;
         }[];
         const listedNames = listResult?.map((e) => e.name);
@@ -68,7 +68,7 @@ dist/
         // Test search_files respects gitignore
         const searchResult = (await searchFilesTool.execute?.(
             { pattern: "API", caseSensitive: true, maxResults: 50 },
-            {} as ToolCallOptions,
+            {} as ToolExecutionOptions,
         )) as { results: { file: string }[] };
 
         const searchedFiles = searchResult?.results.map((r: { file: string }) => r.file);
