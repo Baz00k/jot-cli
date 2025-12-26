@@ -10,6 +10,7 @@ import {
     NoUserActionPending,
     UserCancel,
 } from "@/domain/errors";
+import { getModelSettings } from "@/domain/model-settings";
 import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowState } from "@/domain/workflow";
 import { Config } from "@/services/config";
 import { Prompts } from "@/services/prompts";
@@ -87,8 +88,11 @@ const createModel = (
     modelName: string,
     reasoning: boolean,
     reasoningEffort: Schema.Schema.Type<typeof reasoningOptions>,
+    role?: "writer" | "reviewer",
 ): LanguageModel => {
     const openrouter = createOpenRouter({ apiKey });
+    const specificSettings = getModelSettings(modelName, role);
+
     return openrouter(modelName, {
         reasoning: {
             effort: reasoningEffort,
@@ -97,6 +101,7 @@ const createModel = (
         usage: {
             include: true,
         },
+        ...specificSettings,
     });
 };
 
@@ -263,6 +268,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         options.modelWriter ?? DEFAULT_MODEL_WRITER,
                         reasoning,
                         reasoningEffort,
+                        "writer",
                     );
 
                     const reviewerModel = createModel(
@@ -270,6 +276,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         options.modelReviewer ?? DEFAULT_MODEL_REVIEWER,
                         reasoning,
                         reasoningEffort,
+                        "reviewer",
                     );
 
                     // Load prompt templates
