@@ -1,8 +1,9 @@
 import { FileSystem, Path } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { Effect, Layer, Ref, Schema } from "effect";
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_MAX_AGENT_ITERATIONS } from "@/domain/constants";
+import { DEFAULT_MAX_AGENT_ITERATIONS } from "@/domain/constants";
 import { ConfigReadError, ConfigWriteError } from "@/domain/errors";
+import { UserDirs } from "@/services/user-dirs";
 
 export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     openRouterApiKey: Schema.optional(Schema.String),
@@ -27,38 +28,11 @@ export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     reasoningEffort: Schema.optionalWith(Schema.Literal("low", "medium", "high"), { default: () => "high" as const }),
 }) {}
 
-export const getConfigDir = Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const configDir = process.env.XDG_CONFIG_HOME ?? process.env.APPDATA;
-
-    if (configDir) {
-        return path.join(configDir, CONFIG_DIR_NAME);
-    }
-
-    const homeDir = process.env.HOME ?? process.env.USERPROFILE;
-
-    if (homeDir) {
-        if (process.platform === "win32") {
-            return path.join(homeDir, "AppData", "Roaming", CONFIG_DIR_NAME);
-        }
-
-        return path.join(homeDir, ".config", CONFIG_DIR_NAME);
-    }
-
-    return yield* Effect.fail("Could not determine home directory");
-});
-
-const getConfigPath = Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const dir = yield* getConfigDir;
-    return path.join(dir, CONFIG_FILE_NAME);
-});
-
 export class Config extends Effect.Service<Config>()("services/config", {
     effect: Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const configPath = yield* getConfigPath;
+        const configPath = yield* UserDirs.getPath("config", "config.json");
 
         yield* Effect.logDebug(`Loading config from ${configPath}`);
 
@@ -103,7 +77,7 @@ export class Config extends Effect.Service<Config>()("services/config", {
             location: configPath,
         };
     }),
-    dependencies: [BunContext.layer],
+    dependencies: [BunContext.layer, UserDirs.Default],
     accessors: true,
 }) {}
 
