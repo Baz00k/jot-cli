@@ -1,8 +1,24 @@
+import { supportsLanguage } from "cli-highlight";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
 import { STREAM_WINDOW_SIZE } from "@/domain/constants";
 
+const languageRemap: Record<string, string> = {
+    bibtex: "latex",
+};
+
+const stripUnsupportedLanguages = (markdown: string) =>
+    markdown.replace(/```(\w+)/g, (_, lang) => {
+        const remappedLang = languageRemap[lang] ?? lang;
+        return supportsLanguage(remappedLang) ? `\`\`\`${remappedLang}` : "```";
+    });
+
 marked.use(
+    {
+        hooks: {
+            preprocess: stripUnsupportedLanguages,
+        },
+    },
     markedTerminal({
         width: Math.max(process.stdout.columns - 10, 1),
         reflowText: true,
