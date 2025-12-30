@@ -139,6 +139,20 @@ export class NoUserActionPending extends Data.TaggedError("NoUserActionPending")
     readonly message?: string;
 }> {}
 
+export class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
+export class SessionReadError extends Data.TaggedError("SessionReadError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
+export class UserDirError extends Data.TaggedError("UserDirError")<{
+    readonly message: string;
+}> {}
+
 /**
  * Marker error indicating that a workflow error was handled and displayed to the user.
  * Used to signal graceful exit without re-displaying error messages.

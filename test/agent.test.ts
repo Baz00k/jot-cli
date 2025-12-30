@@ -5,6 +5,7 @@ import { Agent } from "@/services/agent";
 import { TestConfigLayer } from "@/services/config";
 import { TestAppLogger } from "@/services/logger";
 import { TestPromptsLayer } from "@/services/prompts";
+import { TestSessionLayer } from "@/services/session";
 
 const mockStreamText = mock();
 const mockGenerateObject = mock();
@@ -34,7 +35,7 @@ describe("Agent Service", () => {
     });
 
     const TestLayer = Agent.DefaultWithoutDependencies.pipe(
-        Layer.provideMerge(Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger)),
+        Layer.provideMerge(Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger, TestSessionLayer)),
     );
 
     test("runs successful workflow (draft -> approve -> edit)", async () => {
