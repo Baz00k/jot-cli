@@ -1,3 +1,4 @@
+import type { ToolSet } from "ai";
 import { editFileTool } from "./edit-file";
 import { listFilesTool } from "./list-files";
 import { readFileTool } from "./read-file";
@@ -12,13 +13,13 @@ export const tools = {
     search_files: searchFilesTool,
     write_file: writeFileTool,
     edit_file: editFileTool,
-};
+} satisfies ToolSet;
 
 export const explore_tools = {
     list_files: listFilesTool,
     search_files: searchFilesTool,
     read_file: readFileTool,
-};
+} satisfies ToolSet;
 
 export const edit_tools = {
     list_files: listFilesTool,
@@ -26,4 +27,7 @@ export const edit_tools = {
     read_file: readFileTool,
     write_file: writeFileTool,
     edit_file: editFileTool,
-};
+} satisfies ToolSet;
+
+export type ExploreTools = typeof explore_tools;
+export type EditTools = typeof edit_tools;

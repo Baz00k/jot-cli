@@ -1,23 +1,18 @@
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateObject, jsonSchema, type LanguageModel, stepCountIs, streamText } from "ai";
-import { Deferred, Effect, Fiber, JSONSchema, Option, Queue, Ref, Runtime, Schedule, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import {
     AgentLoopError,
     AgentStreamError,
-    AIGenerationError,
     MaxIterationsReached,
     NoUserActionPending,
     UserCancel,
 } from "@/domain/errors";
-import { getModelSettings } from "@/domain/model-settings";
 import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowState } from "@/domain/workflow";
 import { Config } from "@/services/config";
+import { LLM, type ToolCallRecord } from "@/services/llm";
 import { Prompts } from "@/services/prompts";
 import { Session } from "@/services/session";
 import { edit_tools, explore_tools } from "@/tools";
-
-const reviewResultJsonSchema = jsonSchema<Schema.Schema.Type<typeof ReviewResult>>(JSONSchema.make(ReviewResult));
+import { Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
@@ -77,179 +72,12 @@ export interface RunResult {
     readonly sessionPath: string;
 }
 
-interface OpenRouterMetadata {
-    readonly openrouter?: {
-        readonly usage?: {
-            readonly cost?: number;
-            readonly totalTokens?: number;
-        };
-    };
-}
-
-const createModel = (
-    apiKey: string,
-    modelName: string,
-    reasoning: boolean,
-    reasoningEffort: Schema.Schema.Type<typeof reasoningOptions>,
-    role?: "writer" | "reviewer",
-): LanguageModel => {
-    const openrouter = createOpenRouter({ apiKey });
-    const specificSettings = getModelSettings(modelName, role);
-
-    return openrouter(modelName, {
-        reasoning: {
-            effort: reasoningEffort,
-            enabled: reasoning,
-        },
-        usage: {
-            include: true,
-        },
-        ...specificSettings,
-    });
-};
-
-const retryPolicy = Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3)));
-
-/**
- * Wraps an effect with retry logic and maps errors to AgentLoopError.
- * Only retries if the underlying AIGenerationError is retryable.
- */
-const withRetryAndErrorMapping = <A>(
-    effect: Effect.Effect<A, AIGenerationError>,
-    phase: "drafting" | "reviewing" | "editing",
-): Effect.Effect<A, AgentLoopError> =>
-    effect.pipe(
-        Effect.tapError((error) =>
-            error.isRetryable
-                ? Effect.logInfo(`Retrying AI generation in ${phase} phase due to: ${error.message}`)
-                : Effect.succeed(undefined),
-        ),
-        Effect.retry({
-            schedule: retryPolicy,
-            while: (error) => error.isRetryable,
-        }),
-        Effect.mapError(
-            (error) =>
-                new AgentLoopError({
-                    cause: error,
-                    message: error.message,
-                    phase,
-                }),
-        ),
-    );
-
-interface ToolCallRecord {
-    name: string;
-    input: unknown;
-    output: unknown;
-}
-
-const runStreamingGeneration = (
-    params: Parameters<typeof streamText>[0],
-    eventQueue: Queue.Queue<AgentEvent>,
-    phase: "drafting" | "reviewing" | "editing",
-    onToolCall?: (record: ToolCallRecord) => void,
-): Effect.Effect<{ content: string; cost: number }, AgentLoopError> =>
-    Effect.gen(function* () {
-        let streamError: unknown = null;
-
-        const response = yield* Effect.try({
-            try: () =>
-                streamText({
-                    ...params,
-                    onError: ({ error }) => {
-                        streamError = error;
-                    },
-                    onStepFinish: ({ toolCalls, toolResults }) => {
-                        if (!onToolCall || !toolCalls || toolCalls.length === 0) return;
-                        for (const call of toolCalls) {
-                            const result = toolResults?.find((r) => r.toolCallId === call.toolCallId);
-                            onToolCall({
-                                name: call.toolName,
-                                input: call.input,
-                                output: result?.output ?? null,
-                            });
-                        }
-                    },
-                }),
-            catch: AIGenerationError.fromUnknown,
-        });
-
-        const accumulator = yield* Ref.make("");
-
-        if (streamError) {
-            return yield* Effect.fail(AIGenerationError.fromUnknown(streamError));
-        }
-
-        yield* Stream.fromAsyncIterable(
-            (async function* () {
-                yield* response.textStream;
-            })(),
-            (error) => streamError ?? error,
-        ).pipe(
-            Stream.runForEach((chunk) =>
-                Effect.all(
-                    [
-                        Queue.offer(eventQueue, {
-                            _tag: "StreamChunk",
-                            content: chunk,
-                            phase,
-                        } as const),
-                        Ref.update(accumulator, (acc) => acc + chunk),
-                    ],
-                    { discard: true },
-                ),
-            ),
-            Effect.mapError((error) => AIGenerationError.fromUnknown(streamError ?? error)),
-        );
-
-        if (streamError) {
-            return yield* Effect.fail(AIGenerationError.fromUnknown(streamError));
-        }
-
-        const text = yield* Ref.get(accumulator);
-
-        if (!text || text.trim().length === 0) {
-            return yield* Effect.fail(
-                new AIGenerationError({
-                    cause: null,
-                    message: "Generation failed: Empty response received.",
-                    isRetryable: true,
-                }),
-            );
-        }
-
-        let cost = 0;
-        const metadata = (yield* Effect.tryPromise(() => response.providerMetadata).pipe(
-            Effect.orElseSucceed(() => undefined),
-        )) as OpenRouterMetadata | undefined;
-
-        if (metadata?.openrouter?.usage) {
-            cost = metadata.openrouter.usage.cost || 0;
-        }
-
-        return { content: text, cost };
-    }).pipe((effect) => withRetryAndErrorMapping(effect, phase));
-
-const runStructuredGeneration = (params: Parameters<typeof generateObject>[0]) =>
-    Effect.tryPromise({
-        try: async () => {
-            const response = await generateObject(params);
-            const metadata = response.providerMetadata as OpenRouterMetadata | undefined;
-            const cost = metadata?.openrouter?.usage?.cost || 0;
-            return {
-                result: Schema.decodeUnknownSync(ReviewResult)(response.object),
-                cost,
-            };
-        },
-        catch: AIGenerationError.fromUnknown,
-    }).pipe((effect) => withRetryAndErrorMapping(effect, "reviewing"));
-
 export class Agent extends Effect.Service<Agent>()("services/agent", {
     effect: Effect.gen(function* () {
         const prompts = yield* Prompts;
         const config = yield* Config;
         const session = yield* Session;
+        const llm = yield* LLM;
 
         return {
             /**
@@ -268,36 +96,24 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     );
 
                     const userConfig = yield* config.get;
-                    const apiKey = userConfig.openRouterApiKey;
-
-                    if (!apiKey) {
-                        return yield* Effect.fail(
-                            new AgentStreamError({
-                                cause: "Missing API key",
-                                message: "OpenRouter API key not configured",
-                            }),
-                        );
-                    }
 
                     const maxIterations = options.maxIterations ?? userConfig.agentMaxIterations;
                     const reasoning = options.reasoning ?? true;
                     const reasoningEffort = options.reasoningEffort ?? "high";
 
-                    const writerModel = createModel(
-                        apiKey,
-                        options.modelWriter ?? DEFAULT_MODEL_WRITER,
+                    const writerModel = yield* llm.createModel({
+                        name: options.modelWriter ?? DEFAULT_MODEL_WRITER,
+                        role: "writer",
                         reasoning,
                         reasoningEffort,
-                        "writer",
-                    );
+                    });
 
-                    const reviewerModel = createModel(
-                        apiKey,
-                        options.modelReviewer ?? DEFAULT_MODEL_REVIEWER,
+                    const reviewerModel = yield* llm.createModel({
+                        name: options.modelReviewer ?? DEFAULT_MODEL_REVIEWER,
+                        role: "reviewer",
                         reasoning,
                         reasoningEffort,
-                        "reviewer",
-                    );
+                    });
 
                     const writerModelName = options.modelWriter ?? DEFAULT_MODEL_WRITER;
                     const reviewerModelName = options.modelReviewer ?? DEFAULT_MODEL_REVIEWER;
@@ -322,12 +138,10 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     yield* Effect.logDebug(`Session created: ${sessionHandle.id}`);
 
-                    // Load prompt templates
                     const writerTask = yield* prompts.getWriterTask;
                     const reviewerTask = yield* prompts.getReviewerTask;
                     const editorTask = yield* prompts.getEditorTask;
 
-                    // Create event queue and user action deferred
                     const eventQueue = yield* Queue.unbounded<AgentEvent>();
                     const userActionDeferred = yield* Ref.make<Deferred.Deferred<UserAction, UserCancel> | null>(null);
 
@@ -335,10 +149,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     const runtime = yield* Effect.runtime<never>();
 
-                    const saveEvent = (event: AgentEvent) => sessionHandle.addAgentEvent(event);
-
                     const emitEvent = (event: AgentEvent) =>
-                        Effect.all([Queue.offer(eventQueue, event), saveEvent(event)], { discard: true });
+                        Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], { discard: true });
 
                     const saveToolCall = (record: ToolCallRecord) => {
                         Runtime.runPromise(runtime)(
@@ -356,7 +168,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             yield* Effect.logDebug(`Starting agent cycle ${cycle}`);
 
-                            // 1. Safety Check: Max Iterations
                             if (state.iterationCount >= maxIterations) {
                                 const lastDraft = Option.getOrElse(state.latestDraft, () => "");
                                 const totalCost = yield* sessionHandle
@@ -376,7 +187,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 );
                             }
 
-                            // 2. Drafting Phase
                             const isRevision = Option.isSome(state.latestDraft);
                             const latestFeedback = state.latestFeedback;
 
@@ -399,21 +209,44 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                         : undefined,
                             });
 
-                            const { content: newContent, cost: draftCost } = yield* runStreamingGeneration(
-                                {
-                                    model: writerModel,
-                                    tools: explore_tools,
-                                    stopWhen: isRevision ? undefined : stepCountIs(MAX_STEP_COUNT),
-                                    system: writerTask.system,
-                                    prompt: writerPrompt,
-                                },
-                                eventQueue,
-                                "drafting",
-                                saveToolCall,
-                            );
+                            const { content: newContent, cost: draftCost } = yield* llm
+                                .streamText(
+                                    {
+                                        model: writerModel,
+                                        system: writerTask.system,
+                                        prompt: writerPrompt,
+                                        tools: explore_tools,
+                                        maxSteps: MAX_STEP_COUNT,
+                                    },
+                                    (chunk) => {
+                                        Runtime.runSync(runtime)(
+                                            Effect.all(
+                                                [
+                                                    Queue.offer(eventQueue, {
+                                                        _tag: "StreamChunk",
+                                                        content: chunk,
+                                                        phase: "drafting",
+                                                    } as const),
+                                                ],
+                                                { discard: true },
+                                            ),
+                                        );
+                                    },
+                                    saveToolCall,
+                                )
+                                .pipe(
+                                    Effect.mapError(
+                                        (error) =>
+                                            new AgentLoopError({
+                                                cause: error,
+                                                message: error.message,
+                                                phase: "drafting",
+                                            }),
+                                    ),
+                                );
+
                             yield* sessionHandle.addCost(draftCost);
 
-                            // Update state with new draft
                             yield* Ref.update(stateRef, (s) =>
                                 s.add(
                                     new DraftGenerated({
@@ -432,7 +265,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 cycle,
                             });
 
-                            // 3. Review Phase
                             yield* Effect.logDebug("Starting review phase", { cycle });
                             yield* emitEvent({
                                 _tag: "Progress",
@@ -445,17 +277,29 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 draft: newContent,
                             });
 
-                            const { result: reviewResult, cost: reviewCost } = yield* runStructuredGeneration({
-                                model: reviewerModel,
-                                system: reviewerTask.system,
-                                prompt: reviewPrompt,
-                                schema: reviewResultJsonSchema,
-                            });
+                            const { result: reviewResult, cost: reviewCost } = yield* llm
+                                .generateObject({
+                                    model: reviewerModel,
+                                    system: reviewerTask.system,
+                                    prompt: reviewPrompt,
+                                    schema: ReviewResult,
+                                    schemaName: "ReviewResult",
+                                })
+                                .pipe(
+                                    Effect.mapError(
+                                        (error) =>
+                                            new AgentLoopError({
+                                                cause: error,
+                                                message: error.message,
+                                                phase: "reviewing",
+                                            }),
+                                    ),
+                                );
+
                             yield* sessionHandle.addCost(reviewCost);
 
                             yield* Effect.logDebug("Review complete", { approved: reviewResult.approved });
 
-                            // Update state with review
                             yield* Ref.update(stateRef, (s) =>
                                 s.add(
                                     new ReviewCompleted({
@@ -475,7 +319,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 cycle,
                             });
 
-                            // 4. Branching Logic
                             if (!reviewResult.approved) {
                                 yield* emitEvent({
                                     _tag: "Progress",
@@ -485,7 +328,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 return yield* step();
                             }
 
-                            // 5. User Feedback Phase (Human-in-the-loop)
                             yield* emitEvent({
                                 _tag: "UserActionRequired",
                                 draft: newContent,
@@ -495,10 +337,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const deferred = yield* Deferred.make<UserAction, UserCancel>();
                             yield* Ref.set(userActionDeferred, deferred);
 
-                            // Wait for user decision
                             const userAction = yield* Deferred.await(deferred);
 
-                            // Update state with user feedback
                             yield* Ref.update(stateRef, (s) =>
                                 s.add(
                                     new UserFeedback({
@@ -518,7 +358,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 return yield* step();
                             }
 
-                            // 6. Editing Phase
                             yield* emitEvent({
                                 _tag: "Progress",
                                 message: "Applying approved changes to project files...",
@@ -530,25 +369,47 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 approvedContent: newContent,
                             });
 
-                            const { content: _editOutput, cost: editCost } = yield* runStreamingGeneration(
-                                {
-                                    model: writerModel,
-                                    tools: edit_tools,
-                                    stopWhen: stepCountIs(MAX_STEP_COUNT),
-                                    system: editorTask.system,
-                                    prompt: editPrompt,
-                                },
-                                eventQueue,
-                                "editing",
-                                saveToolCall,
-                            );
+                            const { content: _editOutput, cost: editCost } = yield* llm
+                                .streamText(
+                                    {
+                                        model: writerModel,
+                                        system: editorTask.system,
+                                        prompt: editPrompt,
+                                        tools: edit_tools,
+                                        maxSteps: MAX_STEP_COUNT,
+                                    },
+                                    (chunk) => {
+                                        Runtime.runSync(runtime)(
+                                            Effect.all(
+                                                [
+                                                    Queue.offer(eventQueue, {
+                                                        _tag: "StreamChunk",
+                                                        content: chunk,
+                                                        phase: "editing",
+                                                    } as const),
+                                                ],
+                                                { discard: true },
+                                            ),
+                                        );
+                                    },
+                                    saveToolCall,
+                                )
+                                .pipe(
+                                    Effect.mapError(
+                                        (error) =>
+                                            new AgentLoopError({
+                                                cause: error,
+                                                message: error.message,
+                                                phase: "editing",
+                                            }),
+                                    ),
+                                );
+
                             yield* sessionHandle.addCost(editCost);
 
-                            // Success - workflow complete
                             return newContent;
                         });
 
-                    // Fork the workflow
                     const workflowFiber = yield* step().pipe(
                         Effect.tap((content) => sessionHandle.updateStatus("completed", content)),
                         Effect.tapError((error) => {
@@ -605,7 +466,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                         }),
                                     );
                                 }
-                                // Check if deferred is already done
                                 const isDone = yield* Deferred.isDone(deferred);
                                 if (isDone) {
                                     return yield* Effect.fail(
@@ -627,7 +487,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     yield* Deferred.fail(deferred, new UserCancel());
                                 }
                                 yield* Fiber.interrupt(workflowFiber);
-                                // Ensure queue is shutdown even if ensuring didn't run due to interruption
                                 yield* Queue.shutdown(eventQueue);
                             }),
 
@@ -650,5 +509,5 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                 }),
         };
     }),
-    dependencies: [Prompts.Default, Config.Default, Session.Default],
+    dependencies: [Prompts.Default, Config.Default, Session.Default, LLM.Default],
 }) {}

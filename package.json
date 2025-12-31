@@ -31,7 +31,7 @@
         "@effect/platform": "^0.93.8",
         "@effect/platform-bun": "^0.86.0",
         "@openrouter/ai-sdk-provider": "^1.5.4",
-        "ai": "^6.0.3",
+        "ai": "^6.0.5",
         "cli-highlight": "^2.1.11",
         "dedent": "^1.7.1",
         "effect": "^3.19.13",

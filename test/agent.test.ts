@@ -3,17 +3,21 @@ import { Chunk, Effect, Layer, Ref, Stream } from "effect";
 import type { MaxIterationsReached } from "@/domain/errors";
 import { Agent } from "@/services/agent";
 import { TestConfigLayer } from "@/services/config";
+import { LLM } from "@/services/llm";
 import { TestAppLogger } from "@/services/logger";
 import { TestPromptsLayer } from "@/services/prompts";
 import { TestSessionLayer } from "@/services/session";
 
 const mockStreamText = mock();
 const mockGenerateObject = mock();
+const mockGenerateText = mock();
 
 mock.module("ai", () => ({
     streamText: mockStreamText,
     generateObject: mockGenerateObject,
+    generateText: mockGenerateText,
     jsonSchema: (s: unknown) => s,
+    Output: { object: (s: unknown) => s },
     stepCountIs: () => undefined,
 }));
 
@@ -26,35 +30,36 @@ const createMockStream = (content: string) => ({
         yield content;
     })(),
     text: Promise.resolve(content),
+    providerMetadata: Promise.resolve({}),
 });
 
 describe("Agent Service", () => {
     beforeEach(() => {
         mockStreamText.mockReset();
         mockGenerateObject.mockReset();
+        mockGenerateText.mockReset();
     });
 
     const TestLayer = Agent.DefaultWithoutDependencies.pipe(
-        Layer.provideMerge(Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger, TestSessionLayer)),
+        Layer.provideMerge(
+            Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger, TestSessionLayer, LLM.Default),
+        ),
     );
 
     test("runs successful workflow (draft -> approve -> edit)", async () => {
-        // 1. Drafting
         mockStreamText.mockReturnValueOnce(createMockStream("Draft content"));
 
-        // 2. Reviewing (Approved)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: true, critique: "Good", reasoning: "Ok" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: true, critique: "Good", reasoning: "Ok" },
+            providerMetadata: {},
         });
 
-        // 3. Editing
         mockStreamText.mockReturnValueOnce(createMockStream("Editing output"));
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
             const runner = yield* agent.run({ prompt: "Do work" });
 
-            // Collect events and handle user action
             const eventsChunk = yield* Stream.runCollect(
                 runner.events.pipe(
                     Stream.tap((event) =>
@@ -72,7 +77,6 @@ describe("Agent Service", () => {
             expect(result.finalContent).toBe("Draft content");
             expect(result.iterations).toBe(1);
 
-            // Verify phases
             const events = Chunk.toReadonlyArray(eventsChunk);
             const phases = events.map((e) => e._tag);
             expect(phases).toContain("DraftComplete");
@@ -84,23 +88,20 @@ describe("Agent Service", () => {
     });
 
     test("handles rejection loop (draft -> reject -> revise -> approve)", async () => {
-        // 1. Initial Draft
         mockStreamText.mockReturnValueOnce(createMockStream("Draft 1"));
 
-        // 2. Review (Rejected)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: false, critique: "Bad", reasoning: "Fix it" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: false, critique: "Bad", reasoning: "Fix it" },
+            providerMetadata: {},
         });
 
-        // 3. Revised Draft
         mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
 
-        // 4. Review (Approved)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: true, critique: "Good", reasoning: "Better" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: true, critique: "Good", reasoning: "Better" },
+            providerMetadata: {},
         });
 
-        // 5. Editing
         mockStreamText.mockReturnValueOnce(createMockStream("Editing output"));
 
         const program = Effect.gen(function* () {
@@ -129,18 +130,16 @@ describe("Agent Service", () => {
     });
 
     test("stops at max iterations", async () => {
-        // Setup infinite rejection loop
         mockStreamText.mockImplementation(() => createMockStream("Draft"));
-        mockGenerateObject.mockReturnValue({
-            object: { approved: false, critique: "Bad", reasoning: "Never ends" },
+        mockGenerateText.mockReturnValue({
+            output: { approved: false, critique: "Bad", reasoning: "Never ends" },
+            providerMetadata: {},
         });
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
-            // Set max iterations to 2 via options
             const runner = yield* agent.run({ prompt: "Do work", maxIterations: 2 });
 
-            // We expect it to fail with MaxIterationsReached
             const result = yield* runner.result.pipe(Effect.flip);
 
             expect(result._tag).toBe("MaxIterationsReached");
@@ -151,20 +150,17 @@ describe("Agent Service", () => {
     });
 
     test("handles user rejection", async () => {
-        // 1. Draft 1
         mockStreamText.mockReturnValueOnce(createMockStream("Draft 1"));
-        // 2. Review 1 (Approved)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: true, critique: "Good", reasoning: "Ok" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: true, critique: "Good", reasoning: "Ok" },
+            providerMetadata: {},
         });
 
-        // 3. Draft 2 (Revision after user reject)
         mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
-        // 4. Review 2 (Approved)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: true, critique: "Good", reasoning: "Ok" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: true, critique: "Good", reasoning: "Ok" },
+            providerMetadata: {},
         });
-        // 5. Editing
         mockStreamText.mockReturnValueOnce(createMockStream("Editing"));
 
         const program = Effect.gen(function* () {
@@ -199,19 +195,16 @@ describe("Agent Service", () => {
     });
 
     test("getCurrentState returns draft and iteration info", async () => {
-        // 1. Draft
         mockStreamText.mockReturnValueOnce(createMockStream("Draft content"));
-        // 2. Review (Rejected to continue)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: false, critique: "Bad", reasoning: "Try again" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: false, critique: "Bad", reasoning: "Try again" },
+            providerMetadata: {},
         });
-        // 3. We'll get state mid-workflow
         mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
-        // 4. Review (Approved)
-        mockGenerateObject.mockReturnValueOnce({
-            object: { approved: true, critique: "Good", reasoning: "Ok" },
+        mockGenerateText.mockReturnValueOnce({
+            output: { approved: true, critique: "Good", reasoning: "Ok" },
+            providerMetadata: {},
         });
-        // 5. Editing
         mockStreamText.mockReturnValueOnce(createMockStream("Edit"));
 
         const program = Effect.gen(function* () {
@@ -222,7 +215,6 @@ describe("Agent Service", () => {
                 Effect.Effect.Success<ReturnType<typeof runner.getCurrentState>> | undefined
             >(undefined);
 
-            // Capture state when we see the first draft complete
             yield* Stream.runCollect(
                 runner.events.pipe(
                     Stream.tap((event) =>
@@ -244,7 +236,6 @@ describe("Agent Service", () => {
 
             yield* runner.result;
 
-            // Verify state was captured
             const capturedState = yield* Ref.get(stateRef);
             expect(capturedState).toBeTruthy();
             expect(capturedState?.workflowState.iterationCount).toBe(1);
