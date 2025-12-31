@@ -87,7 +87,7 @@ export class ProjectFiles extends Effect.Service<ProjectFiles>()("services/Proje
                                 return null;
                             }
                             return {
-                                name,
+                                name: path.basename(name),
                                 type: stats.type,
                                 path: relPath,
                             };
