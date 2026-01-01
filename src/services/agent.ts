@@ -1,3 +1,4 @@
+import { Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import {
     AgentLoopError,
@@ -12,7 +13,6 @@ import { LLM, type ToolCallRecord } from "@/services/llm";
 import { Prompts } from "@/services/prompts";
 import { Session } from "@/services/session";
 import { edit_tools, explore_tools } from "@/tools";
-import { Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
@@ -150,7 +150,9 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     const runtime = yield* Effect.runtime<never>();
 
                     const emitEvent = (event: AgentEvent) =>
-                        Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], { discard: true });
+                        Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], {
+                            discard: true,
+                        });
 
                     const saveToolCall = (record: ToolCallRecord) => {
                         Runtime.runPromise(runtime)(
@@ -190,7 +192,39 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const isRevision = Option.isSome(state.latestDraft);
                             const latestFeedback = state.latestFeedback;
 
-                            yield* Effect.logDebug("Starting drafting phase", { isRevision });
+                            // Extract previously read files to provide context during revision
+                            const getSourceContext = Effect.gen(function* () {
+                                if (!isRevision) return undefined;
+                                const toolCalls = yield* sessionHandle.getToolCalls();
+                                const readCalls = toolCalls.filter(
+                                    (tc) =>
+                                        tc.name === "read_file" &&
+                                        typeof tc.output === "string" &&
+                                        typeof tc.input === "object" &&
+                                        tc.input !== null &&
+                                        "filePath" in tc.input,
+                                );
+
+                                // Deduplicate by filePath, keeping the latest read
+                                const fileMap = new Map<string, string>();
+                                for (const call of readCalls) {
+                                    const path = (call.input as { filePath: string }).filePath;
+                                    fileMap.set(path, call.output as string);
+                                }
+
+                                if (fileMap.size === 0) return undefined;
+
+                                return Array.from(fileMap.entries())
+                                    .map(([path, content]) => `File: ${path}\n\`\`\`\n${content}\n\`\`\``)
+                                    .join("\n\n");
+                            });
+
+                            const sourceFiles = yield* getSourceContext;
+
+                            yield* Effect.logDebug("Starting drafting phase", {
+                                isRevision,
+                                hasSourceContext: !!sourceFiles,
+                            });
 
                             yield* emitEvent({
                                 _tag: "Progress",
@@ -205,6 +239,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                         ? {
                                               draft: Option.getOrElse(state.latestDraft, () => ""),
                                               feedback: latestFeedback.value,
+                                              sourceFiles,
                                           }
                                         : undefined,
                             });
@@ -215,7 +250,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                         model: writerModel,
                                         system: writerTask.system,
                                         prompt: writerPrompt,
-                                        tools: explore_tools,
+                                        tools: isRevision ? {} : explore_tools,
                                         maxSteps: MAX_STEP_COUNT,
                                     },
                                     (chunk) => {
@@ -275,6 +310,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const reviewPrompt = reviewerTask.render({
                                 goal: options.prompt,
                                 draft: newContent,
+                                sourceFiles,
                             });
 
                             const { result: reviewResult, cost: reviewCost } = yield* llm

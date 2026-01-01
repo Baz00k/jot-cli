@@ -88,6 +88,7 @@ export interface SessionHandle {
     ) => Effect.Effect<void>;
     readonly addCost: (cost: number) => Effect.Effect<void>;
     readonly getTotalCost: () => Effect.Effect<number>;
+    readonly getToolCalls: () => Effect.Effect<Array<{ name: string; input: unknown; output: unknown }>>;
     readonly updateIterations: (iterations: number) => Effect.Effect<void>;
     readonly flush: () => Effect.Effect<void>;
     readonly close: () => Effect.Effect<void>;
@@ -230,6 +231,15 @@ export class Session extends Effect.Service<Session>()("services/session", {
 
                         getTotalCost: () => Ref.get(stateRef).pipe(Effect.map((d) => d.totalCost)),
 
+                        getToolCalls: () =>
+                            Ref.get(stateRef).pipe(
+                                Effect.map((d) =>
+                                    d.entries
+                                        .filter((e) => e._tag === "ToolCall")
+                                        .map((e) => ({ name: e.name, input: e.input, output: e.output })),
+                                ),
+                            ),
+
                         updateIterations: (iterations) =>
                             updateState(
                                 (data) =>
@@ -298,6 +308,7 @@ export const TestSession = new Session({
             updateStatus: (_status, _finalContent) => Effect.void,
             addCost: (_cost) => Effect.void,
             getTotalCost: () => Effect.succeed(0),
+            getToolCalls: () => Effect.succeed([]),
             updateIterations: (_iterations) => Effect.void,
             flush: () => Effect.void,
             close: () => Effect.void,

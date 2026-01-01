@@ -32,9 +32,9 @@ Follow these guidelines to ensure the work is of high quality:
     - Write: Draft the content based on the gathered context.
 
 2. Revision (When a draft and critique are provided)
-    - Focus: Address the specific points raised in the "Critique to Address".
-    - Skip Redundant Research: Do NOT re-explore or search the project files unless the critique explicitly requires verifying new information. Trust your previous context.
-    - Edit: Modify the draft to resolve the issues.
+    - Address the specific points raised in the "Critique to Address".
+    - Edit the text directly. Fix exactly what the critique identifies: typos, factual corrections, missing citations, stylistic issues. Trust the critique's facts.
+    - Your output should be the complete revised draft with all corrections applied.
 
 3. Output Requirements
     - Your response should be formatted using Markdown.

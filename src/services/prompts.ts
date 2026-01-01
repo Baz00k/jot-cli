@@ -1,8 +1,8 @@
+import { PromptReadError } from "@/domain/errors";
+import { promptPaths } from "@/prompts";
 import { FileSystem } from "@effect/platform";
 import { BunFileSystem } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
-import { PromptReadError } from "@/domain/errors";
-import { promptPaths } from "@/prompts";
 
 export type PromptType = keyof typeof promptPaths;
 
@@ -11,12 +11,14 @@ export interface WriterTaskInput {
     readonly context?: {
         readonly draft: string;
         readonly feedback: string;
+        readonly sourceFiles?: string;
     };
 }
 
 export interface ReviewerTaskInput {
     readonly goal: string;
     readonly draft: string;
+    readonly sourceFiles?: string;
 }
 
 export interface EditorTaskInput {
@@ -62,17 +64,23 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                     render: (input: WriterTaskInput): string => {
                         if (input.context) {
                             // Revision prompt - include current draft and feedback
-                            return [
-                                `Task: ${input.goal}`,
-                                "",
-                                "## Current Draft",
-                                input.context.draft,
+                            const parts = [`Task: ${input.goal}`, "", "## Current Draft", input.context.draft];
+
+                            if (input.context.sourceFiles) {
+                                parts.push("", "## Source Files (from initial exploration)", input.context.sourceFiles);
+                            }
+
+                            parts.push(
                                 "",
                                 "## Critique to Address",
                                 input.context.feedback,
                                 "",
-                                "Please revise the draft to address the critique above. Provide the complete revised content.",
-                            ].join("\n");
+                                "## Instructions",
+                                "Revise the draft IN-PLACE to address each critique point.",
+                                "Output the complete revised draft.",
+                            );
+
+                            return parts.join("\n");
                         }
 
                         // Initial draft prompt
@@ -95,15 +103,15 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                 return {
                     system: systemPrompt,
                     render: (input: ReviewerTaskInput): string => {
-                        return [
-                            "## Original Goal",
-                            input.goal,
-                            "",
-                            "## Draft to Review",
-                            input.draft,
-                            "",
-                            "Evaluate this draft against the original goal.",
-                        ].join("\n");
+                        const parts = ["## Original Goal", input.goal, "", "## Draft to Review", input.draft];
+
+                        if (input.sourceFiles) {
+                            parts.push("", "## Source Files (from initial exploration)", input.sourceFiles);
+                        }
+
+                        parts.push("", "Evaluate this draft against the original goal.");
+
+                        return parts.join("\n");
                     },
                 };
             }),
