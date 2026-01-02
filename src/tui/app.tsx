@@ -63,8 +63,8 @@ function App() {
 
     return (
         <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
-            <box style={{ height: 3, border: true, justifyContent: "center", alignItems: "center" }}>
-                <text>Jot CLI - AI Research Assistant TUI</text>
+            <box style={{ border: true, justifyContent: "center", alignItems: "center" }}>
+                <text>Jot CLI - AI Research Assistant</text>
             </box>
 
             <box style={{ flexGrow: 1, flexDirection: "row" }}>
@@ -72,10 +72,10 @@ function App() {
                     <text>Task Input</text>
 
                     <box style={{ flexGrow: 1 }}>
-                        <textarea placeholder="Enter your writing task here..." />
+                        <textarea focused placeholder="Enter your writing task here..." />
                     </box>
 
-                    <box style={{ height: 3 }}>
+                    <box>
                         <text>{isRunning ? "Running agent..." : "Press Enter to start, R to reset"}</text>
                     </box>
                 </box>
@@ -95,7 +95,14 @@ function App() {
                 </box>
             </box>
 
-            <box style={{ height: 2, border: true, justifyContent: "space-between" }}>
+            <box
+                style={{
+                    border: true,
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                }}
+            >
                 <text>Press ESC to exit</text>
                 <text>{isRunning ? "Status: Running" : "Status: Ready"}</text>
             </box>
@@ -110,5 +117,6 @@ export async function startTUI() {
 
     createRoot(renderer).render(<App />);
 
+    renderer.setTerminalTitle("Jot CLI");
     renderer.start();
 }
