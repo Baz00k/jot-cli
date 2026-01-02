@@ -1,64 +1,32 @@
 import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
+import { createRoot } from "@opentui/react";
 import { useState } from "react";
+import { ActivityPanel } from "@/tui/components/ActivityPanel";
+import { StatusBar } from "@/tui/components/StatusBar";
+import { TaskInput } from "@/tui/components/TaskInput";
+import { useAgentSimulation, useKeyboardShortcuts } from "@/tui/hooks";
 
 function App() {
     const [prompt, setPrompt] = useState("");
     const [isRunning, setIsRunning] = useState(false);
     const [events, setEvents] = useState<string[]>([]);
 
-    useKeyboard((key) => {
-        if (key.name === "escape") {
-            process.exit(0);
-        }
-
-        if (!isRunning) {
-            if (key.name === "return") {
-                handleStartAgent();
-            } else if (key.name === "r") {
-                handleReset();
-            }
-        }
+    const { startAgent, reset } = useAgentSimulation({
+        isRunning,
+        setIsRunning,
+        setEvents,
     });
 
-    const handleStartAgent = () => {
-        if (!prompt.trim() || isRunning) return;
+    useKeyboardShortcuts({
+        onExit: () => process.exit(0),
+        onSubmit: () => prompt.trim() && startAgent(),
+        onReset: reset,
+        isRunning,
+    });
 
-        setIsRunning(true);
-        setEvents([]);
-
-        // For now, simulate the agent workflow
-        // In the future, this will connect to the actual agent service
-        const simulateEvents = [
-            "Starting agent...",
-            "Reading project files...",
-            "Generating draft...",
-            "Draft complete",
-            "Reviewing content...",
-            "Review approved",
-            "Finalizing result...",
-            "Done!",
-        ];
-
-        simulateEvents.forEach((event, index) => {
-            setTimeout(
-                () => {
-                    setEvents((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${event}`]);
-                    if (index === simulateEvents.length - 1) {
-                        setIsRunning(false);
-                    }
-                },
-                (index + 1) * 1000,
-            );
-        });
-    };
-
-    const handleReset = () => {
-        if (isRunning) return;
-
-        setPrompt("");
-        setEvents([]);
-        setIsRunning(false);
+    const handleTaskSubmit = (task: string) => {
+        setPrompt(task);
+        startAgent();
     };
 
     return (
@@ -68,44 +36,11 @@ function App() {
             </box>
 
             <box style={{ flexGrow: 1, flexDirection: "row" }}>
-                <box style={{ width: "50%", border: true, flexDirection: "column" }}>
-                    <text>Task Input</text>
-
-                    <box style={{ flexGrow: 1 }}>
-                        <textarea focused placeholder="Enter your writing task here..." />
-                    </box>
-
-                    <box>
-                        <text>{isRunning ? "Running agent..." : "Press Enter to start, R to reset"}</text>
-                    </box>
-                </box>
-
-                <box style={{ width: "50%", border: true, flexDirection: "column" }}>
-                    <text>Agent Activity</text>
-
-                    <scrollbox style={{ flexGrow: 1 }}>
-                        {events.map((event, index) => (
-                            <box key={`${index}-${event.slice(0, 20)}`}>
-                                <text>{event}</text>
-                            </box>
-                        ))}
-
-                        {isRunning && <text>Agent is working...</text>}
-                    </scrollbox>
-                </box>
+                <TaskInput onTaskSubmit={handleTaskSubmit} isRunning={isRunning} />
+                <ActivityPanel events={events} isRunning={isRunning} />
             </box>
 
-            <box
-                style={{
-                    border: true,
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                }}
-            >
-                <text>Press ESC to exit</text>
-                <text>{isRunning ? "Status: Running" : "Status: Ready"}</text>
-            </box>
+            <StatusBar isRunning={isRunning} />
         </box>
     );
 }
