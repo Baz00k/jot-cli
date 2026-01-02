@@ -8,7 +8,6 @@ import { writeCommand } from "@/commands/write";
 import { Agent } from "@/services/agent";
 import { Config } from "@/services/config";
 import { AppLogger } from "@/services/logger";
-// Import TUI
 import { startTUI } from "@/tui/app";
 import { version } from "../package.json";
 
