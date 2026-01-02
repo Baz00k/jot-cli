@@ -31,12 +31,15 @@
         "@effect/platform": "^0.93.8",
         "@effect/platform-bun": "^0.86.0",
         "@openrouter/ai-sdk-provider": "^1.5.4",
+        "@types/turndown": "^5.0.6",
         "ai": "^6.0.5",
         "cli-highlight": "^2.1.11",
         "dedent": "^1.7.1",
         "effect": "^3.19.13",
+        "htmlrewriter": "^0.0.13",
         "ignore": "^7.0.5",
         "marked": "^16.4.2",
-        "marked-terminal": "^7.3.0"
+        "marked-terminal": "^7.3.0",
+        "turndown": "^7.2.0"
     }
 }

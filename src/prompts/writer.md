@@ -29,7 +29,8 @@ Follow these guidelines to ensure the work is of high quality:
 1. Initial Drafting (When no draft exists)
     - Explore: First, explore the project files to understand the structure and context using tools.
     - Search: Search files to find specific content patterns, existing writing style, bibliography, and formatting.
-    - Write: Draft the content based on the gathered context.
+    - Research: Use web search and web fetch tools when you need current information, citations, or to verify facts from external sources.
+    - Write: Draft the content based on the gathered context and research.
 
 2. Revision (When a draft and critique are provided)
     - Address the specific points raised in the "Critique to Address".

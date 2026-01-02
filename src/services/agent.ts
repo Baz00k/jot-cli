@@ -12,6 +12,7 @@ import { Config } from "@/services/config";
 import { LLM, type ToolCallRecord } from "@/services/llm";
 import { Prompts } from "@/services/prompts";
 import { Session } from "@/services/session";
+import { Web } from "@/services/web";
 import { edit_tools, explore_tools } from "@/tools";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
@@ -318,8 +319,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     model: reviewerModel,
                                     system: reviewerTask.system,
                                     prompt: reviewPrompt,
+                                    tools: explore_tools,
                                     schema: ReviewResult,
-                                    schemaName: "ReviewResult",
                                 })
                                 .pipe(
                                     Effect.mapError(
@@ -545,5 +546,5 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                 }),
         };
     }),
-    dependencies: [Prompts.Default, Config.Default, Session.Default, LLM.Default],
+    dependencies: [Prompts.Default, Config.Default, Session.Default, LLM.Default, Web.Default],
 }) {}

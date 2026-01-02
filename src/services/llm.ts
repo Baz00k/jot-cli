@@ -33,12 +33,8 @@ export interface StreamingResult {
     readonly cost: number;
 }
 
-export interface StructuredParams<T> {
-    readonly model: ModelRef;
-    readonly system: string;
-    readonly prompt: string;
-    readonly schema: Schema.Schema<T>;
-    readonly schemaName?: string;
+export interface StructuredParams<TSchema, TTools extends ToolSet = ToolSet> extends StreamingParams<TTools> {
+    readonly schema: Schema.Schema<TSchema>;
 }
 
 export interface StructuredResult<T> {
@@ -181,7 +177,9 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                     return { content: accumulatedText, cost };
                 }).pipe(withRetry),
 
-            generateObject: <T>(params: StructuredParams<T>): Effect.Effect<StructuredResult<T>, AIGenerationError> =>
+            generateObject: <TSchema, TTools extends ToolSet>(
+                params: StructuredParams<TSchema, TTools>,
+            ): Effect.Effect<StructuredResult<TSchema>, AIGenerationError> =>
                 Effect.gen(function* () {
                     const result = yield* Effect.tryPromise({
                         try: async () => {
@@ -190,6 +188,7 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                                 model: params.model,
                                 system: params.system,
                                 prompt: params.prompt,
+                                tools: params.tools,
                                 output: Output.object({
                                     schema: () =>
                                         jsonSchema(jsonSchemaObj, {
@@ -208,14 +207,13 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                                                 });
                                             },
                                         }),
-                                    name: params.schemaName,
                                 }),
                             });
 
                             const metadata = resultMetadata as OpenRouterMetadata | undefined;
                             const cost = metadata?.openrouter?.usage?.cost || 0;
                             return {
-                                result: resultOutput as T,
+                                result: resultOutput as TSchema,
                                 cost,
                             };
                         },

@@ -1,8 +1,8 @@
-import { PromptReadError } from "@/domain/errors";
-import { promptPaths } from "@/prompts";
 import { FileSystem } from "@effect/platform";
 import { BunFileSystem } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
+import { PromptReadError } from "@/domain/errors";
+import { promptPaths } from "@/prompts";
 
 export type PromptType = keyof typeof promptPaths;
 

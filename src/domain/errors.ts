@@ -160,3 +160,18 @@ export class UserDirError extends Data.TaggedError("UserDirError")<{
 export class WorkflowErrorHandled extends Data.TaggedError("WorkflowErrorHandled")<{
     readonly savedPath?: string;
 }> {}
+
+export class ConversionError extends Data.TaggedError("ConversionError")<{
+    readonly cause: unknown;
+    readonly message?: string;
+}> {}
+
+export class WebSearchError extends Data.TaggedError("WebSearchError")<{
+    readonly message: string;
+    readonly cause?: unknown;
+}> {}
+
+export class WebFetchError extends Data.TaggedError("WebFetchError")<{
+    readonly message: string;
+    readonly cause?: unknown;
+}> {}
