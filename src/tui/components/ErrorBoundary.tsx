@@ -24,8 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
         return { hasError: true, error };
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: opentui uses different type for renderable
-    override render(): any {
+    override render() {
         if (this.state.hasError) {
             return (
                 <box

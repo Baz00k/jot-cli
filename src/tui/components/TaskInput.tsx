@@ -71,10 +71,9 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                 border: true,
                 borderColor: focused ? "cyan" : "gray",
                 flexDirection: "column",
-                padding: 1,
             }}
         >
-            <box style={{ flexGrow: 1, flexDirection: "row", flexWrap: "wrap" }}>
+            <box style={{ flexGrow: 1, flexDirection: "row", flexWrap: "wrap", padding: 1 }}>
                 {!buffer.text && !focused ? (
                     <text fg="gray">Enter your writing task here... (Ctrl+Enter for newline)</text>
                 ) : (
@@ -82,7 +81,7 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                 )}
             </box>
 
-            <box style={{ marginTop: 0 }}>
+            <box style={{ padding: 1 }}>
                 <text fg="gray">
                     {isRunning ? "Running agent..." : "Enter: Submit | Ctrl+Enter: New Line | Esc: Cancel"}
                 </text>

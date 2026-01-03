@@ -6,6 +6,7 @@
         "jot": "src/index.ts"
     },
     "scripts": {
+        "dev": "DEV=true bun run ./src/index.ts",
         "check": "biome check . && tsc --noEmit",
         "check:fix": "biome check --write && tsc --noEmit",
         "compile": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot",
@@ -43,7 +44,8 @@
         "@tsconfig/bun": "^1.0.10",
         "@types/bun": "latest",
         "@types/json-schema": "^7.0.15",
-        "@types/react": "^19.2.7"
+        "@types/react": "^19.2.7",
+        "react-devtools-core": "7"
     },
     "peerDependencies": {
         "typescript": "^5.9.3"
