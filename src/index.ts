@@ -2,6 +2,7 @@
 import { Command } from "@effect/cli";
 import { BunContext, BunRuntime } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
+import { authCommand } from "@/commands/auth";
 import { configCommand } from "@/commands/config";
 import { writeCommand } from "@/commands/write";
 import { Agent } from "@/services/agent";
@@ -11,7 +12,7 @@ import { version } from "../package.json";
 
 const command = Command.make("jot").pipe(
     Command.withDescription("AI Research Assistant CLI"),
-    Command.withSubcommands([configCommand, writeCommand]),
+    Command.withSubcommands([configCommand, writeCommand, authCommand]),
 );
 
 const cli = Command.run(command, {

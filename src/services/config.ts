@@ -26,6 +26,13 @@ export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
     reasoning: Schema.optionalWith(Schema.Boolean, { default: () => true }),
     /** Effort level for reasoning (low, medium, high) */
     reasoningEffort: Schema.optionalWith(Schema.Literal("low", "medium", "high"), { default: () => "high" as const }),
+    googleAntigravity: Schema.optional(
+        Schema.Struct({
+            accessToken: Schema.String,
+            refreshToken: Schema.optional(Schema.String),
+            expiresAt: Schema.optional(Schema.Number),
+        }),
+    ),
 }) {}
 
 export class Config extends Effect.Service<Config>()("services/config", {

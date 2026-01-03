@@ -3,6 +3,7 @@ import { generateText, jsonSchema, type LanguageModel, Output, stepCountIs, stre
 import { Effect, Either, JSONSchema, Schedule, Schema, Stream } from "effect";
 import { AIGenerationError } from "@/domain/errors";
 import { getModelSettings } from "@/domain/model-settings";
+import { createAntigravity } from "@/providers/antigravity";
 import { Config } from "@/services/config";
 
 export type ModelRef = LanguageModel;
@@ -68,13 +69,26 @@ const withRetry = <A, E extends AIGenerationError>(effect: Effect.Effect<A, E>):
 
 export class LLM extends Effect.Service<LLM>()("services/llm", {
     effect: Effect.gen(function* () {
-        const config = yield* Config.get;
-        const apiKey = config.openRouterApiKey;
-        const provider = createOpenRouter({ apiKey });
+        const config = yield* Config;
+        const apiKey = (yield* config.get).openRouterApiKey;
+        const openRouter = createOpenRouter({ apiKey });
+        const antigravity = createAntigravity(config);
 
         return {
             createModel: (modelConfig: ModelConfig) =>
                 Effect.gen(function* () {
+                    const specificSettings = getModelSettings(modelConfig.name, modelConfig.role);
+
+                    if (modelConfig.name.startsWith("antigravity-")) {
+                        return antigravity(modelConfig.name, {
+                            reasoning: {
+                                effort: modelConfig.reasoningEffort ?? "high",
+                                enabled: modelConfig.reasoning ?? true,
+                            },
+                            ...specificSettings,
+                        });
+                    }
+
                     if (!apiKey) {
                         return yield* Effect.fail(
                             new AIGenerationError({
@@ -85,9 +99,7 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                         );
                     }
 
-                    const specificSettings = getModelSettings(modelConfig.name, modelConfig.role);
-
-                    return provider(modelConfig.name, {
+                    return openRouter(modelConfig.name, {
                         reasoning: {
                             effort: modelConfig.reasoningEffort ?? "high",
                             enabled: modelConfig.reasoning ?? true,

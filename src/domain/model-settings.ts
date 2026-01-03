@@ -27,6 +27,18 @@ export const MODEL_SPECIFIC_SETTINGS: Record<string, ModelSettings> = {
             temperature: 1,
         },
     },
+    "antigravity-gemini*": {
+        topP: 0.95,
+        topK: 64,
+        writer: {
+            temperature: 1,
+        },
+    },
+    "antigravity-claude*": {
+        writer: {
+            temperature: 1,
+        },
+    },
     "glm-4.*": {
         writer: {
             temperature: 1,
