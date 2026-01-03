@@ -50,6 +50,12 @@ export type AgentEvent =
           readonly cycle: number;
       }
     | {
+          readonly _tag: "ToolCall";
+          readonly name: string;
+          readonly input: unknown;
+          readonly output: unknown;
+      }
+    | {
           readonly _tag: "IterationLimitReached";
           readonly iterations: number;
           readonly lastDraft: string;
@@ -157,7 +163,18 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     const saveToolCall = (record: ToolCallRecord) => {
                         Runtime.runPromise(runtime)(
-                            sessionHandle.addToolCall(record.name, record.input, record.output),
+                            Effect.all(
+                                [
+                                    sessionHandle.addToolCall(record.name, record.input, record.output),
+                                    Queue.offer(eventQueue, {
+                                        _tag: "ToolCall",
+                                        name: record.name,
+                                        input: record.input,
+                                        output: record.output,
+                                    } as const),
+                                ],
+                                { discard: true },
+                            ),
                         );
                     };
 
