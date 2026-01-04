@@ -16,7 +16,7 @@ const buildPayload = (modelId: string, options: LanguageModelV3CallOptions): Api
     const { contents, systemInstruction } = mapPromptToContents(options.prompt);
     return {
         project: PROJECT_ID,
-        model: modelId.replace(/^antigravity-/, ""),
+        model: modelId.replace(/^(google\/)?antigravity-/, ""),
         request: {
             contents,
             tools: mapTools(options.tools),

@@ -79,7 +79,10 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                 Effect.gen(function* () {
                     const specificSettings = getModelSettings(modelConfig.name, modelConfig.role);
 
-                    if (modelConfig.name.startsWith("antigravity-")) {
+                    if (
+                        modelConfig.name.startsWith("antigravity-") ||
+                        modelConfig.name.startsWith("google/antigravity-")
+                    ) {
                         return antigravity(modelConfig.name, {
                             reasoning: {
                                 effort: modelConfig.reasoningEffort ?? "high",
