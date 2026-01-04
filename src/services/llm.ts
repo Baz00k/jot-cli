@@ -1,6 +1,7 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText, jsonSchema, type LanguageModel, Output, stepCountIs, streamText, type ToolSet } from "ai";
-import { Effect, Either, JSONSchema, Schedule, Schema, Stream } from "effect";
+import { MockLanguageModelV3 } from "ai/test";
+import { Effect, Either, JSONSchema, Layer, Schedule, Schema, Stream } from "effect";
 import { AIGenerationError } from "@/domain/errors";
 import { getModelSettings } from "@/domain/model-settings";
 import { createAntigravity } from "@/providers/antigravity";
@@ -76,7 +77,7 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
         const antigravity = createAntigravity(config, runtime);
 
         return {
-            createModel: (modelConfig: ModelConfig) =>
+            createModel: (modelConfig: ModelConfig): Effect.Effect<LanguageModel, AIGenerationError> =>
                 Effect.gen(function* () {
                     const specificSettings = getModelSettings(modelConfig.name, modelConfig.role);
 
@@ -166,7 +167,7 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                     );
 
                     if (streamError) {
-                        return yield* Effect.fail(AIGenerationError.fromUnknown(streamError));
+                        return yield* AIGenerationError.fromUnknown(streamError);
                     }
 
                     if (!accumulatedText || accumulatedText.trim().length === 0) {
@@ -237,3 +238,15 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
     }),
     dependencies: [Config.Default],
 }) {}
+
+export const TestLLM = new LLM({
+    createModel: () => Effect.succeed(MockLanguageModelV3 as unknown as LanguageModel),
+    streamText: () => Effect.succeed({ content: "Test", cost: 0 }),
+    generateObject: <TSchema, TTools extends ToolSet>(params: StructuredParams<TSchema, TTools>) =>
+        Effect.succeed({
+            result: params.schema as TSchema,
+            cost: 0,
+        }),
+});
+
+export const TestLLMLayer = Layer.succeed(LLM, TestLLM);
