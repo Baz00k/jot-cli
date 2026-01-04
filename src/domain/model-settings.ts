@@ -20,21 +20,9 @@ export const ModelSettings = Schema.Struct({
 export type ModelSettings = Schema.Schema.Type<typeof ModelSettings>;
 
 export const MODEL_SPECIFIC_SETTINGS: Record<string, ModelSettings> = {
-    "gemini*": {
+    "*gemini*": {
         topP: 0.95,
         topK: 64,
-        writer: {
-            temperature: 1,
-        },
-    },
-    "antigravity-gemini*": {
-        topP: 0.95,
-        topK: 64,
-        writer: {
-            temperature: 1,
-        },
-    },
-    "antigravity-claude*": {
         writer: {
             temperature: 1,
         },
