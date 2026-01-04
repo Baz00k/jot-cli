@@ -54,3 +54,12 @@ export interface ApiRequest {
     userAgent: string;
     requestId: string;
 }
+
+export type AntigravityErrorResponse = {
+    error?: {
+        code?: number;
+        message?: string;
+        status?: string;
+        details?: Array<{ retryDelay?: string }>;
+    };
+};

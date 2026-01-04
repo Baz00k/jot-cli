@@ -72,7 +72,8 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
         const config = yield* Config;
         const apiKey = (yield* config.get).openRouterApiKey;
         const openRouter = createOpenRouter({ apiKey });
-        const antigravity = createAntigravity(config);
+        const runtime = yield* Effect.runtime();
+        const antigravity = createAntigravity(config, runtime);
 
         return {
             createModel: (modelConfig: ModelConfig) =>
@@ -93,13 +94,11 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                     }
 
                     if (!apiKey) {
-                        return yield* Effect.fail(
-                            new AIGenerationError({
-                                cause: null,
-                                message: "OpenRouter API key not configured",
-                                isRetryable: false,
-                            }),
-                        );
+                        return yield* new AIGenerationError({
+                            cause: null,
+                            message: "OpenRouter API key not configured",
+                            isRetryable: false,
+                        });
                     }
 
                     return openRouter(modelConfig.name, {
@@ -149,7 +148,7 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                     let accumulatedText = "";
 
                     if (streamError) {
-                        return yield* Effect.fail(AIGenerationError.fromUnknown(streamError));
+                        return yield* AIGenerationError.fromUnknown(streamError);
                     }
 
                     yield* Stream.fromAsyncIterable(
@@ -171,13 +170,11 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                     }
 
                     if (!accumulatedText || accumulatedText.trim().length === 0) {
-                        return yield* Effect.fail(
-                            new AIGenerationError({
-                                cause: null,
-                                message: "Generation failed: Empty response received.",
-                                isRetryable: true,
-                            }),
-                        );
+                        return yield* new AIGenerationError({
+                            cause: null,
+                            message: "Generation failed: Empty response received.",
+                            isRetryable: true,
+                        });
                     }
 
                     let cost = 0;

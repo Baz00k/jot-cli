@@ -1,30 +1,36 @@
 import { Effect, Schema } from "effect";
 import type { Config } from "@/services/config";
 import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "./constants";
+import { AntigravityAuthError } from "./errors";
 import { TokenResponseSchema } from "./schemas";
 
 export const refreshTokenRequest = (refreshToken: string) =>
-    Effect.tryPromise({
-        try: async () => {
-            const response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: new URLSearchParams({
-                    client_id: ANTIGRAVITY_CLIENT_ID,
-                    client_secret: ANTIGRAVITY_CLIENT_SECRET,
-                    refresh_token: refreshToken,
-                    grant_type: "refresh_token",
-                }),
-            });
+    Effect.gen(function* () {
+        yield* Effect.logDebug("[Antigravity] Refreshing access token...");
 
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Failed to refresh token: ${text}`);
-            }
+        return yield* Effect.tryPromise({
+            try: async () => {
+                const response = await fetch("https://oauth2.googleapis.com/token", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: new URLSearchParams({
+                        client_id: ANTIGRAVITY_CLIENT_ID,
+                        client_secret: ANTIGRAVITY_CLIENT_SECRET,
+                        refresh_token: refreshToken,
+                        grant_type: "refresh_token",
+                    }),
+                });
 
-            return await Schema.decodeUnknownPromise(TokenResponseSchema)(await response.json());
-        },
-        catch: (e) => new Error(String(e)),
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new AntigravityAuthError({ message: `Failed to refresh token: ${text}` });
+                }
+
+                return await Schema.decodeUnknownPromise(TokenResponseSchema)(await response.json());
+            },
+            catch: (e) =>
+                e instanceof AntigravityAuthError ? e : new AntigravityAuthError({ message: String(e), cause: e }),
+        });
     });
 
 export const getValidToken = (config: Config) =>
@@ -33,7 +39,9 @@ export const getValidToken = (config: Config) =>
         const auth = userConfig.googleAntigravity;
 
         if (!auth?.accessToken) {
-            return yield* Effect.fail(new Error("Not authenticated. Run 'jot auth' first."));
+            return yield* Effect.fail(
+                new AntigravityAuthError({ message: "Not authenticated. Run 'jot auth' first." }),
+            );
         }
 
         if (auth.expiresAt && Date.now() < auth.expiresAt - 60000) {
@@ -41,9 +49,14 @@ export const getValidToken = (config: Config) =>
         }
 
         if (!auth.refreshToken) {
-            return yield* Effect.fail(new Error("Token expired and no refresh token available. Run 'jot auth' again."));
+            return yield* Effect.fail(
+                new AntigravityAuthError({
+                    message: "Token expired and no refresh token available. Run 'jot auth' again.",
+                }),
+            );
         }
 
+        yield* Effect.logInfo("[Antigravity] Token expired, refreshing...");
         const tokens = yield* refreshTokenRequest(auth.refreshToken);
 
         yield* config.update({
@@ -54,6 +67,8 @@ export const getValidToken = (config: Config) =>
                 expiresAt: Date.now() + tokens.expires_in * 1000,
             },
         });
+
+        yield* Effect.logDebug("[Antigravity] Token refreshed successfully");
 
         return tokens.access_token;
     });

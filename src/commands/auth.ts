@@ -1,3 +1,7 @@
+import * as crypto from "node:crypto";
+import { intro, log, note, outro, spinner } from "@clack/prompts";
+import { Command } from "@effect/cli";
+import { Effect } from "effect";
 import {
     ANTIGRAVITY_CLIENT_ID,
     ANTIGRAVITY_CLIENT_SECRET,
@@ -10,10 +14,6 @@ import {
 } from "@/providers/antigravity/constants";
 import { Config } from "@/services/config";
 import { renderMarkdown } from "@/text/utils";
-import { intro, log, note, outro, spinner } from "@clack/prompts";
-import { Command } from "@effect/cli";
-import { Effect } from "effect";
-import * as crypto from "node:crypto";
 
 const base64URLEncode = (buffer: Buffer) => {
     return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
