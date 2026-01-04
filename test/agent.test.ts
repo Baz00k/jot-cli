@@ -3,58 +3,47 @@ import { Chunk, Effect, Layer, Ref, Stream } from "effect";
 import type { MaxIterationsReached } from "@/domain/errors";
 import { Agent } from "@/services/agent";
 import { TestConfigLayer } from "@/services/config";
-import { LLM } from "@/services/llm";
+import { TestLLM, TestLLMLayer } from "@/services/llm";
 import { TestAppLogger } from "@/services/logger";
 import { TestPromptsLayer } from "@/services/prompts";
 import { TestSessionLayer } from "@/services/session";
 
-const mockStreamText = mock();
-const mockGenerateObject = mock();
-const mockGenerateText = mock();
-
-mock.module("ai", () => ({
-    streamText: mockStreamText,
-    generateObject: mockGenerateObject,
-    generateText: mockGenerateText,
-    jsonSchema: (s: unknown) => s,
-    Output: { object: (s: unknown) => s },
-    stepCountIs: () => undefined,
-}));
-
-mock.module("@openrouter/ai-sdk-provider", () => ({
-    createOpenRouter: () => () => ({}),
-}));
-
-const createMockStream = (content: string) => ({
-    textStream: (async function* () {
-        yield content;
-    })(),
-    text: Promise.resolve(content),
-    providerMetadata: Promise.resolve({}),
-});
-
 describe("Agent Service", () => {
+    const originalStreamText = TestLLM.streamText;
+    const originalGenerateObject = TestLLM.generateObject;
+
     beforeEach(() => {
-        mockStreamText.mockReset();
-        mockGenerateObject.mockReset();
-        mockGenerateText.mockReset();
+        TestLLM.streamText = originalStreamText;
+        TestLLM.generateObject = originalGenerateObject;
     });
 
     const TestLayer = Agent.DefaultWithoutDependencies.pipe(
         Layer.provideMerge(
-            Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger, TestSessionLayer, LLM.Default),
+            Layer.mergeAll(TestConfigLayer, TestPromptsLayer, TestAppLogger, TestSessionLayer, TestLLMLayer),
         ),
     );
 
     test("runs successful workflow (draft -> approve -> edit)", async () => {
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft content"));
+        const streamTextMock = mock();
 
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: true, critique: "Good", reasoning: "Ok" },
-            providerMetadata: {},
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft content");
+            return Effect.succeed({ content: "Draft content", cost: 0 });
         });
 
-        mockStreamText.mockReturnValueOnce(createMockStream("Editing output"));
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Editing output");
+            return Effect.succeed({ content: "Editing output", cost: 0 });
+        });
+
+        TestLLM.streamText = streamTextMock;
+
+        TestLLM.generateObject = mock((_: unknown) =>
+            Effect.succeed({
+                result: { approved: true, critique: "Good", reasoning: "Ok" },
+                cost: 0,
+            }),
+        ) as unknown as typeof TestLLM.generateObject;
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
@@ -88,21 +77,40 @@ describe("Agent Service", () => {
     });
 
     test("handles rejection loop (draft -> reject -> revise -> approve)", async () => {
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft 1"));
+        const streamTextMock = mock();
 
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: false, critique: "Bad", reasoning: "Fix it" },
-            providerMetadata: {},
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft 1");
+            return Effect.succeed({ content: "Draft 1", cost: 0 });
         });
 
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
-
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: true, critique: "Good", reasoning: "Better" },
-            providerMetadata: {},
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft 2");
+            return Effect.succeed({ content: "Draft 2", cost: 0 });
         });
 
-        mockStreamText.mockReturnValueOnce(createMockStream("Editing output"));
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Editing output");
+            return Effect.succeed({ content: "Editing output", cost: 0 });
+        });
+
+        TestLLM.streamText = streamTextMock;
+
+        const generateObjectMock = mock();
+        generateObjectMock.mockImplementationOnce(() =>
+            Effect.succeed({
+                result: { approved: false, critique: "Bad", reasoning: "Fix it" },
+                cost: 0,
+            }),
+        );
+        generateObjectMock.mockImplementationOnce(() =>
+            Effect.succeed({
+                result: { approved: true, critique: "Good", reasoning: "Better" },
+                cost: 0,
+            }),
+        );
+
+        TestLLM.generateObject = generateObjectMock as unknown as typeof TestLLM.generateObject;
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
@@ -130,11 +138,17 @@ describe("Agent Service", () => {
     });
 
     test("stops at max iterations", async () => {
-        mockStreamText.mockImplementation(() => createMockStream("Draft"));
-        mockGenerateText.mockReturnValue({
-            output: { approved: false, critique: "Bad", reasoning: "Never ends" },
-            providerMetadata: {},
+        TestLLM.streamText = mock((_params, onChunk) => {
+            if (onChunk) onChunk("Draft");
+            return Effect.succeed({ content: "Draft", cost: 0 });
         });
+
+        TestLLM.generateObject = mock((_: unknown) =>
+            Effect.succeed({
+                result: { approved: false, critique: "Bad", reasoning: "Never ends" },
+                cost: 0,
+            }),
+        ) as unknown as typeof TestLLM.generateObject;
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
@@ -150,18 +164,35 @@ describe("Agent Service", () => {
     });
 
     test("handles user rejection", async () => {
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft 1"));
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: true, critique: "Good", reasoning: "Ok" },
-            providerMetadata: {},
+        const streamTextMock = mock();
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft 1");
+            return Effect.succeed({ content: "Draft 1", cost: 0 });
         });
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft 2");
+            return Effect.succeed({ content: "Draft 2", cost: 0 });
+        });
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Editing");
+            return Effect.succeed({ content: "Editing", cost: 0 });
+        });
+        TestLLM.streamText = streamTextMock;
 
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: true, critique: "Good", reasoning: "Ok" },
-            providerMetadata: {},
-        });
-        mockStreamText.mockReturnValueOnce(createMockStream("Editing"));
+        const generateObjectMock = mock();
+        generateObjectMock.mockImplementationOnce(() =>
+            Effect.succeed({
+                result: { approved: true, critique: "Good", reasoning: "Ok" },
+                cost: 0,
+            }),
+        );
+        generateObjectMock.mockImplementationOnce(() =>
+            Effect.succeed({
+                result: { approved: true, critique: "Good", reasoning: "Ok" },
+                cost: 0,
+            }),
+        );
+        TestLLM.generateObject = generateObjectMock as unknown as typeof TestLLM.generateObject;
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
@@ -195,17 +226,39 @@ describe("Agent Service", () => {
     });
 
     test("getCurrentState returns draft and iteration info", async () => {
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft content"));
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: false, critique: "Bad", reasoning: "Try again" },
-            providerMetadata: {},
+        const streamTextMock = mock();
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft content");
+            return Effect.succeed({ content: "Draft content", cost: 0 });
         });
-        mockStreamText.mockReturnValueOnce(createMockStream("Draft 2"));
-        mockGenerateText.mockReturnValueOnce({
-            output: { approved: true, critique: "Good", reasoning: "Ok" },
-            providerMetadata: {},
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Draft 2");
+            return Effect.succeed({ content: "Draft 2", cost: 0 });
         });
-        mockStreamText.mockReturnValueOnce(createMockStream("Edit"));
+        streamTextMock.mockImplementationOnce((_params, onChunk) => {
+            if (onChunk) onChunk("Edit");
+            return Effect.succeed({ content: "Edit", cost: 0 });
+        });
+        TestLLM.streamText = streamTextMock;
+
+        const generateObjectMock = mock();
+        generateObjectMock.mockImplementationOnce(() =>
+            Effect.sleep("100 millis").pipe(
+                Effect.andThen(
+                    Effect.succeed({
+                        result: { approved: false, critique: "Bad", reasoning: "Try again" },
+                        cost: 0,
+                    }),
+                ),
+            ),
+        );
+        generateObjectMock.mockImplementationOnce(() =>
+            Effect.succeed({
+                result: { approved: true, critique: "Good", reasoning: "Ok" },
+                cost: 0,
+            }),
+        );
+        TestLLM.generateObject = generateObjectMock as unknown as typeof TestLLM.generateObject;
 
         const program = Effect.gen(function* () {
             const agent = yield* Agent;
