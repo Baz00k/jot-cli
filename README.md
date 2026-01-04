@@ -41,6 +41,55 @@ from the releases page and add it to your PATH.
 jot write "Draft a conclusion for the paper summarizing the key findings on LLM reasoning."
 ```
 
+## Google Antigravity Provider
+
+Jot CLI supports the internal Google Antigravity API as a provider.
+
+### Authentication
+
+To use this provider, you need to authenticate via OAuth2:
+
+```bash
+jot auth
+```
+
+This command will open a browser window for you to sign in with your Google account.
+
+### Configuration
+
+You can configure Jot CLI to use Antigravity models for drafting and reviewing:
+
+```bash
+# Set the writer model
+jot config set-writer google/antigravity-gemini-3-flash
+
+# Set the reviewer model
+jot config set-reviewer google/antigravity-claude-sonnet-4-5
+```
+
+### Model IDs
+
+When using the Antigravity provider, the model ID should include the `antigravity-` prefix. You can optionally include the `google/` prefix as well. The CLI will automatically strip these prefixes when making API requests.
+
+- **Example**: `antigravity-gemini-3-flash` or `google/antigravity-gemini-3-flash` both send `gemini-3-flash` to the API.
+
+#### Available Antigravity Models
+
+Models with `antigravity-` prefix use Antigravity quota:
+
+| Model | Description |
+|-------|-------------|
+| `google/antigravity-gemini-3-flash` | Gemini 3 Flash (minimal thinking) |
+| `google/antigravity-gemini-3-pro-low` | Gemini 3 Pro with low thinking |
+| `google/antigravity-gemini-3-pro-high` | Gemini 3 Pro with high thinking |
+| `google/antigravity-claude-sonnet-4-5` | Claude Sonnet 4.5 (no thinking) |
+| `google/antigravity-claude-sonnet-4-5-thinking-low` | Sonnet with 8K thinking budget |
+| `google/antigravity-claude-sonnet-4-5-thinking-medium` | Sonnet with 16K thinking budget |
+| `google/antigravity-claude-sonnet-4-5-thinking-high` | Sonnet with 32K thinking budget |
+| `google/antigravity-claude-opus-4-5-thinking-low` | Opus with 8K thinking budget |
+| `google/antigravity-claude-opus-4-5-thinking-medium` | Opus with 16K thinking budget |
+| `google/antigravity-claude-opus-4-5-thinking-high` | Opus with 32K thinking budget |
+
 ## Features
 
 - **Context Awareness**: Reads your project files to understand style and structure.
@@ -58,3 +107,4 @@ This is a list of models that have been tested and found to work well with Jot C
 - x-ai/grok-4.1-fast
 - moonshotai/kimi-k2-thinking
 - z-ai/glm-4.7
+- google/antigravity-gemini-3-flash
