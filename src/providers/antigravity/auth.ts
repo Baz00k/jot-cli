@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "@/domain/constants";
 import type { Config } from "@/services/config";
+import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "./constants";
 import { TokenResponseSchema } from "./schemas";
 
 export const refreshTokenRequest = (refreshToken: string) =>
@@ -48,6 +48,7 @@ export const getValidToken = (config: Config) =>
 
         yield* config.update({
             googleAntigravity: {
+                ...auth,
                 accessToken: tokens.access_token,
                 refreshToken: tokens.refresh_token || auth.refreshToken,
                 expiresAt: Date.now() + tokens.expires_in * 1000,

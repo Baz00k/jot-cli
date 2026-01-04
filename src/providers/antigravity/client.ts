@@ -5,14 +5,14 @@ import type {
     LanguageModelV3StreamPart,
 } from "@ai-sdk/provider";
 import { Effect, Match, Schema } from "effect";
+import { ANTIGRAVITY_HEADERS } from "./constants";
 import { injectJsonInstructionIntoMessages, mapFinishReason, mapPromptToContents, mapTools } from "./mappers";
 import { GenerateResponseSchema } from "./schemas";
 import type { ApiRequest } from "./types";
 
 const BASE_URL = "https://cloudcode-pa.googleapis.com/v1internal";
-const PROJECT_ID = "1071006060591";
 
-const buildPayload = (modelId: string, options: LanguageModelV3CallOptions): ApiRequest => {
+const buildPayload = (modelId: string, projectId: string, options: LanguageModelV3CallOptions): ApiRequest => {
     let prompt = options.prompt;
 
     if (options.responseFormat?.type === "json" && options.responseFormat.schema) {
@@ -25,7 +25,7 @@ const buildPayload = (modelId: string, options: LanguageModelV3CallOptions): Api
     const { contents, systemInstruction } = mapPromptToContents(prompt);
 
     return {
-        project: PROJECT_ID,
+        project: projectId,
         model: modelId.replace(/^(google\/)?antigravity-/, ""),
         request: {
             contents,
@@ -45,24 +45,19 @@ const buildPayload = (modelId: string, options: LanguageModelV3CallOptions): Api
 export const generateRequest = (
     modelId: string,
     token: string,
+    projectId: string,
     options: LanguageModelV3CallOptions,
 ): Effect.Effect<LanguageModelV3GenerateResult, Error> =>
     Effect.tryPromise({
         try: async () => {
-            const payload = buildPayload(modelId, options);
+            const payload = buildPayload(modelId, projectId, options);
 
             const response = await fetch(`${BASE_URL}:generateContent`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
-                    "User-Agent": "antigravity/1.11.5 windows/amd64",
-                    "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-                    "Client-Metadata": JSON.stringify({
-                        ideType: "IDE_UNSPECIFIED",
-                        platform: "PLATFORM_UNSPECIFIED",
-                        pluginType: "GEMINI",
-                    }),
+                    ...ANTIGRAVITY_HEADERS,
                 },
                 body: JSON.stringify(payload),
             });
@@ -82,6 +77,8 @@ export const generateRequest = (
                 Match.when(Match.nonEmptyString, (value) => value),
                 Match.orElse(() => undefined),
             );
+
+            console.log(JSON.stringify(part));
 
             if (part?.text) {
                 content.push({
@@ -127,26 +124,20 @@ export const generateRequest = (
                 warnings: [],
             };
         },
-        catch: (e) => new Error(String(e)),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     });
 
-export const streamRequest = (modelId: string, token: string, options: LanguageModelV3CallOptions) =>
+export const streamRequest = (modelId: string, token: string, projectId: string, options: LanguageModelV3CallOptions) =>
     Effect.tryPromise({
         try: async () => {
-            const payload = buildPayload(modelId, options);
+            const payload = buildPayload(modelId, projectId, options);
 
             const response = await fetch(`${BASE_URL}:streamGenerateContent?alt=sse`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
-                    "User-Agent": "antigravity/1.11.5 windows/amd64",
-                    "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-                    "Client-Metadata": JSON.stringify({
-                        ideType: "IDE_UNSPECIFIED",
-                        platform: "PLATFORM_UNSPECIFIED",
-                        pluginType: "GEMINI",
-                    }),
+                    ...ANTIGRAVITY_HEADERS,
                 },
                 body: JSON.stringify(payload),
             });
@@ -255,5 +246,5 @@ export const streamRequest = (modelId: string, token: string, options: LanguageM
 
             return { stream };
         },
-        catch: (e) => new Error(String(e)),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     });

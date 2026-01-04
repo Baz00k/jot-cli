@@ -17,7 +17,14 @@ export const createAntigravity =
                 return Effect.runPromise(
                     Effect.gen(function* () {
                         const token = yield* getValidToken(config);
-                        return yield* generateRequest(modelId, token, options);
+                        const userConfig = yield* config.get;
+                        const projectId = userConfig.googleAntigravity?.projectId;
+
+                        if (!projectId) {
+                            return yield* Effect.fail(new Error("Project ID not found. Run 'jot auth' again."));
+                        }
+
+                        return yield* generateRequest(modelId, token, projectId, options);
                     }),
                 );
             },
@@ -26,7 +33,14 @@ export const createAntigravity =
                 return Effect.runPromise(
                     Effect.gen(function* () {
                         const token = yield* getValidToken(config);
-                        return yield* streamRequest(modelId, token, options);
+                        const userConfig = yield* config.get;
+                        const projectId = userConfig.googleAntigravity?.projectId;
+
+                        if (!projectId) {
+                            return yield* Effect.fail(new Error("Project ID not found. Run 'jot auth' again."));
+                        }
+
+                        return yield* streamRequest(modelId, token, projectId, options);
                     }),
                 );
             },

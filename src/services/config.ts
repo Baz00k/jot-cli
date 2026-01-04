@@ -31,6 +31,7 @@ export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
             accessToken: Schema.String,
             refreshToken: Schema.optional(Schema.String),
             expiresAt: Schema.optional(Schema.Number),
+            projectId: Schema.optional(Schema.String),
         }),
     ),
 }) {}
