@@ -2,8 +2,71 @@ import type {
     LanguageModelV3CallOptions,
     LanguageModelV3FinishReason,
     LanguageModelV3FunctionTool,
+    LanguageModelV3Message,
+    LanguageModelV3Prompt,
 } from "@ai-sdk/provider";
+import dedent from "dedent";
+import type { JSONSchema7 } from "json-schema";
 import type { ApiContent, FunctionDeclaration, JsonSchema } from "./types";
+
+const DEFAULT_SCHEMA_PREFIX = dedent`
+    > JSON OUTPUT GENERATION MODE
+    Ignore all previous instructions about output formatting.
+    Response JSON schema:
+    `;
+const DEFAULT_SCHEMA_SUFFIX = dedent`
+    You MUST answer with a JSON object that matches the JSON schema above.
+    Do not include any additional text or comments. Your response MUST be a valid JSON object matching the schema.
+    `;
+const DEFAULT_GENERIC_SUFFIX = "You MUST answer with valid JSON.";
+
+export function injectJsonInstruction({
+    prompt,
+    schema,
+    schemaPrefix = schema != null ? DEFAULT_SCHEMA_PREFIX : undefined,
+    schemaSuffix = schema != null ? DEFAULT_SCHEMA_SUFFIX : DEFAULT_GENERIC_SUFFIX,
+}: {
+    prompt?: string;
+    schema?: JSONSchema7;
+    schemaPrefix?: string;
+    schemaSuffix?: string;
+}): string {
+    return [
+        prompt != null && prompt.length > 0 ? prompt : undefined,
+        prompt != null && prompt.length > 0 ? "" : undefined,
+        schemaPrefix,
+        schema != null ? JSON.stringify(schema) : undefined,
+        schemaSuffix,
+    ]
+        .filter((line) => line != null)
+        .join("\n");
+}
+
+export function injectJsonInstructionIntoMessages({
+    messages,
+    schema,
+    schemaPrefix,
+    schemaSuffix,
+}: {
+    messages: LanguageModelV3Prompt;
+    schema?: JSONSchema7;
+    schemaPrefix?: string;
+    schemaSuffix?: string;
+}): LanguageModelV3Prompt {
+    const systemMessage: LanguageModelV3Message =
+        messages[0]?.role === "system" ? { ...messages[0] } : { role: "system", content: "" };
+
+    if (typeof systemMessage.content === "string") {
+        systemMessage.content = injectJsonInstruction({
+            prompt: systemMessage.content,
+            schema,
+            schemaPrefix,
+            schemaSuffix,
+        });
+    }
+
+    return [systemMessage, ...(messages[0]?.role === "system" ? messages.slice(1) : messages)];
+}
 
 export const mapTools = (
     tools: LanguageModelV3CallOptions["tools"],

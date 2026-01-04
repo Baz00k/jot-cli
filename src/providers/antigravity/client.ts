@@ -5,7 +5,7 @@ import type {
     LanguageModelV3StreamPart,
 } from "@ai-sdk/provider";
 import { Effect, Match, Schema } from "effect";
-import { mapFinishReason, mapPromptToContents, mapTools } from "./mappers";
+import { injectJsonInstructionIntoMessages, mapFinishReason, mapPromptToContents, mapTools } from "./mappers";
 import { GenerateResponseSchema } from "./schemas";
 import type { ApiRequest } from "./types";
 
@@ -13,7 +13,17 @@ const BASE_URL = "https://cloudcode-pa.googleapis.com/v1internal";
 const PROJECT_ID = "1071006060591";
 
 const buildPayload = (modelId: string, options: LanguageModelV3CallOptions): ApiRequest => {
-    const { contents, systemInstruction } = mapPromptToContents(options.prompt);
+    let prompt = options.prompt;
+
+    if (options.responseFormat?.type === "json" && options.responseFormat.schema) {
+        prompt = injectJsonInstructionIntoMessages({
+            messages: prompt,
+            schema: options.responseFormat.schema,
+        });
+    }
+
+    const { contents, systemInstruction } = mapPromptToContents(prompt);
+
     return {
         project: PROJECT_ID,
         model: modelId.replace(/^(google\/)?antigravity-/, ""),
