@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/Baz00k/jot-cli/compare/v0.4.0...v0.4.1) (2026-01-04)
+
+
+### Bug Fixes
+
+* allow generation with Antigravity auth without OpenRouter key ([fe875a8](https://github.com/Baz00k/jot-cli/commit/fe875a87986f34aa7e988654b5e88bd0513ad94e))
+
 ## [0.4.0](https://github.com/Baz00k/jot-cli/compare/v0.3.0...v0.4.0) (2026-01-04)
 
 
