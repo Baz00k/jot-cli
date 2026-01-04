@@ -39,9 +39,7 @@ export const getValidToken = (config: Config) =>
         const auth = userConfig.googleAntigravity;
 
         if (!auth?.accessToken) {
-            return yield* Effect.fail(
-                new AntigravityAuthError({ message: "Not authenticated. Run 'jot auth' first." }),
-            );
+            return yield* new AntigravityAuthError({ message: "Not authenticated. Run 'jot auth' first." });
         }
 
         if (auth.expiresAt && Date.now() < auth.expiresAt - 60000) {
@@ -49,11 +47,9 @@ export const getValidToken = (config: Config) =>
         }
 
         if (!auth.refreshToken) {
-            return yield* Effect.fail(
-                new AntigravityAuthError({
-                    message: "Token expired and no refresh token available. Run 'jot auth' again.",
-                }),
-            );
+            return yield* new AntigravityAuthError({
+                message: "Token expired and no refresh token available. Run 'jot auth' again.",
+            });
         }
 
         yield* Effect.logInfo("[Antigravity] Token expired, refreshing...");

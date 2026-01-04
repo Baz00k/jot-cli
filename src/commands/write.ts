@@ -10,7 +10,13 @@ import {
     shouldRethrow,
     type WorkflowSnapshot,
 } from "@/commands/utils/workflow-errors";
-import { DEFAULT_MAX_AGENT_ITERATIONS, DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER } from "@/domain/constants";
+import {
+    DEFAULT_ANTIGRAVITY_REVIEWER,
+    DEFAULT_ANTIGRAVITY_WRITER,
+    DEFAULT_MAX_AGENT_ITERATIONS,
+    DEFAULT_MODEL_REVIEWER,
+    DEFAULT_MODEL_WRITER,
+} from "@/domain/constants";
 import { UserCancel, WorkflowErrorHandled } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
@@ -157,7 +163,7 @@ const handleWorkflowError = (
 
         // User cancellation should propagate to top-level handler
         if (shouldRethrow(error)) {
-            return yield* Effect.fail(error);
+            return yield* error;
         }
 
         // Get current state and display error
@@ -175,12 +181,12 @@ const handleWorkflowError = (
 
             if (savedPath) {
                 yield* displaySaveSuccess(savedPath, snapshot);
-                return yield* Effect.fail(new WorkflowErrorHandled({ savedPath }));
+                return yield* new WorkflowErrorHandled({ savedPath });
             }
             yield* Effect.sync(() => log.info("Draft not saved."));
         }
 
-        return yield* Effect.fail(new WorkflowErrorHandled({}));
+        return yield* new WorkflowErrorHandled({});
     });
 
 export const writeCommand = Command.make(
@@ -222,8 +228,9 @@ export const writeCommand = Command.make(
 
             const userConfig = yield* config.get;
             const apiKey = userConfig.openRouterApiKey;
+            const isAntigravityAvailable = userConfig.googleAntigravity !== undefined;
 
-            if (!apiKey) {
+            if (!apiKey && !isAntigravityAvailable) {
                 yield* Effect.sync(() => outro(Messages.apiKeySetup(config.location)));
                 return yield* Effect.fail(new Error("API key not configured"));
             }
@@ -248,13 +255,14 @@ export const writeCommand = Command.make(
 
             let currentWindowContent = "";
 
+            const defaultWriter = !apiKey && isAntigravityAvailable ? DEFAULT_ANTIGRAVITY_WRITER : DEFAULT_MODEL_WRITER;
+            const defaultReviewer =
+                !apiKey && isAntigravityAvailable ? DEFAULT_ANTIGRAVITY_REVIEWER : DEFAULT_MODEL_REVIEWER;
+
             const agentSession = yield* agent.run({
                 prompt: userPrompt,
-                modelWriter: Option.getOrElse(options.writer, () => userConfig.writerModel ?? DEFAULT_MODEL_WRITER),
-                modelReviewer: Option.getOrElse(
-                    options.reviewer,
-                    () => userConfig.reviewerModel ?? DEFAULT_MODEL_REVIEWER,
-                ),
+                modelWriter: Option.getOrElse(options.writer, () => userConfig.writerModel ?? defaultWriter),
+                modelReviewer: Option.getOrElse(options.reviewer, () => userConfig.reviewerModel ?? defaultReviewer),
                 reasoningEffort: Option.getOrElse(options.reasoningEffort, () => userConfig.reasoningEffort ?? "high"),
                 reasoning: Option.map(options.noReasoning, (no) => !no).pipe(
                     Option.getOrElse(() => userConfig.reasoning ?? true),

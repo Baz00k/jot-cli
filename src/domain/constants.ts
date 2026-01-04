@@ -10,6 +10,9 @@ export const DIR_NAME = {
 export const DEFAULT_MODEL_WRITER = "moonshotai/kimi-k2-thinking";
 export const DEFAULT_MODEL_REVIEWER = "google/gemini-3-pro-preview";
 
+export const DEFAULT_ANTIGRAVITY_WRITER = "google/antigravity-claude-opus-4-5-thinking";
+export const DEFAULT_ANTIGRAVITY_REVIEWER = "google/antigravity-gemini-3-pro-high";
+
 /** Maximum number of steps allowed in a single iteration */
 export const MAX_STEP_COUNT = 20;
 
