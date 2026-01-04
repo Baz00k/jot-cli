@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.4.0](https://github.com/Baz00k/jot-cli/compare/v0.3.0...v0.4.0) (2026-01-04)
+
+
+### Features
+
+* add model specific settings for temperature etc to improve output quality ([11aa6f7](https://github.com/Baz00k/jot-cli/commit/11aa6f7552636ca28f76b318c93c681b624a2f9f))
+* add session saving (with no option to resume for now) ([3d5db41](https://github.com/Baz00k/jot-cli/commit/3d5db41e91ff19ef27c5139a351b7d774574f39d))
+* add web fetch and web search tools to agent ([84e1179](https://github.com/Baz00k/jot-cli/commit/84e117996104798cfaadf7284aae2f52242b5938))
+* **docs:** add docs about google antigravity integration ([aadd89e](https://github.com/Baz00k/jot-cli/commit/aadd89e3c154507f5dac0e4d52503cc3ddb7f0ef))
+* **docs:** update to newest glm model ([bed3d72](https://github.com/Baz00k/jot-cli/commit/bed3d72aa6165b0c9f5b4962b4d087dbdf344458))
+* google antigravity auth and models support ([7984cdb](https://github.com/Baz00k/jot-cli/commit/7984cdb10df4bf0f215680fa7b740b16fc97fa42))
+* improve agent performance by retaining read files in context ([42c69e4](https://github.com/Baz00k/jot-cli/commit/42c69e4e0460942fbaf6a78211da311a7ee37fcc))
+* improve writer prompt ([ac03d99](https://github.com/Baz00k/jot-cli/commit/ac03d99afaa2cafc8c103d5380d21fd56b52f8ce))
+* more robust workflow error handling, ability to save unfinished draft if agent fails ([3e94ac0](https://github.com/Baz00k/jot-cli/commit/3e94ac0ada606184684e36ce9be3bdf63e8d2c52))
+
+
+### Bug Fixes
+
+* auto retrieve project id for antigravity provider ([2739ddc](https://github.com/Baz00k/jot-cli/commit/2739ddc2c4cea1a3c276dd329f538ccafecf1df0))
+* **docs:** fix working model ids, update descriptions ([e62dc96](https://github.com/Baz00k/jot-cli/commit/e62dc96c8fb48d523f8f588f61c6813664a0830b))
+* improve the reviewer prompt to accept markdown with code blocks ([fb10a89](https://github.com/Baz00k/jot-cli/commit/fb10a893a8d5024f5a0f83093acbf8f8b9a8347e))
+* increase max step count ([ba87989](https://github.com/Baz00k/jot-cli/commit/ba87989138d650ab77b7d6b63500f63a6bbd10bf))
+* json structured object generation using antigravity provider ([c201ea8](https://github.com/Baz00k/jot-cli/commit/c201ea8e8ef6c2c3b11d28fb5a64744991d87347))
+* move instructions from system prompt to task prompt ([247a231](https://github.com/Baz00k/jot-cli/commit/247a23163de1df163ed178f1539d63078e498350))
+* properly return name in listFiles ([171ce34](https://github.com/Baz00k/jot-cli/commit/171ce34bdf844de431f27e5331d0e5fb5f86f767))
+* strip unsupported language from markdown render ([938e069](https://github.com/Baz00k/jot-cli/commit/938e069b97ebb492caf23450aeac31dd952050e8))
+* update disallowed properties list for mapper ([5644e25](https://github.com/Baz00k/jot-cli/commit/5644e25a4941cf35f3b8eee5ce49bdc93dca3a08))
+
 ## [0.3.0](https://github.com/Baz00k/jot-cli/compare/v0.2.0...v0.3.0) (2025-12-22)
 
 
