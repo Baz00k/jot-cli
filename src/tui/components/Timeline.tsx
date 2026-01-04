@@ -1,16 +1,13 @@
 import { useAgentContext } from "@/tui/context/AgentContext";
-import { FeedbackWidget } from "./FeedbackWidget";
 import { TimelineItem } from "./timeline/TimelineItem";
 
 interface TimelineProps {
-    onApprove: () => void;
-    onReject: (comment?: string) => void;
     focused: boolean;
 }
 
-export const Timeline = ({ onApprove, onReject, focused }: TimelineProps) => {
+export const Timeline = ({ focused }: TimelineProps) => {
     const { state } = useAgentContext();
-    const { timeline: entries, streamBuffer, streamPhase, phase, pendingAction } = state;
+    const { timeline: entries, streamBuffer, streamPhase } = state;
 
     return (
         <box
@@ -22,7 +19,11 @@ export const Timeline = ({ onApprove, onReject, focused }: TimelineProps) => {
             }}
         >
             {entries.map((entry) => (
-                <TimelineItem key={entry.id} entry={entry} />
+                <TimelineItem
+                    key={entry.id}
+                    entry={entry}
+                    focused={focused && entry.event._tag === "UserActionRequired"}
+                />
             ))}
 
             {streamPhase && (
@@ -30,15 +31,6 @@ export const Timeline = ({ onApprove, onReject, focused }: TimelineProps) => {
                     <text>{streamPhase === "drafting" ? "Drafting..." : "Processing..."}</text>
                     <text>{streamBuffer}</text>
                 </box>
-            )}
-
-            {phase === "awaiting-user" && pendingAction && (
-                <FeedbackWidget
-                    pendingAction={pendingAction}
-                    onApprove={onApprove}
-                    onReject={onReject}
-                    focused={focused}
-                />
             )}
         </box>
     );

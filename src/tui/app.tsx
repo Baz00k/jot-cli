@@ -74,7 +74,9 @@ function App() {
 }
 
 export async function startTUI() {
-    const renderer = await createCliRenderer();
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+    });
 
     createRoot(renderer).render(
         <StrictMode>

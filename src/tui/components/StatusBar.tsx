@@ -1,4 +1,12 @@
+import { useKeyboard } from "@opentui/react";
+
 export const StatusBar = ({ isRunning }: { isRunning: boolean }) => {
+    useKeyboard((key) => {
+        if (key.name === "escape") {
+            process.exit(0);
+        }
+    });
+
     return (
         <box
             style={{

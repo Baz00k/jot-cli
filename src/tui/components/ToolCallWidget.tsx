@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 interface ToolCallWidgetProps {
     name: string;
     input: unknown;
@@ -5,8 +7,9 @@ interface ToolCallWidgetProps {
 }
 
 export const ToolCallWidget = ({ name, input, output }: ToolCallWidgetProps) => {
-    // In a real TUI we might make this focusable to toggle, but for now we show a summary
-    // and rely on truncation. Ideally, we could use a specialized expanding hook.
+    const [expanded, setExpanded] = useState(false);
+
+    const toggle = () => setExpanded((prev) => !prev);
 
     const formatInput = (i: unknown) => {
         if (typeof i === "object" && i !== null) {
@@ -26,18 +29,37 @@ export const ToolCallWidget = ({ name, input, output }: ToolCallWidgetProps) => 
                 flexDirection: "column",
                 paddingLeft: 1,
             }}
+            onMouseDown={toggle}
         >
             <box style={{ flexDirection: "row" }}>
                 <text>
-                    <strong fg="blue">🔧 {name}</strong>
+                    <strong fg="blue">
+                        {expanded ? "▼" : "▶"} 🔧 {name}
+                    </strong>
                 </text>
-                <text style={{ marginLeft: 1 }}>{formatInput(input)}</text>
+                {!expanded && <text style={{ marginLeft: 1 }}>{formatInput(input)}</text>}
             </box>
-            {/* Output summary */}
-            <text fg="gray">
-                {String(output).slice(0, 100).replace(/\n/g, " ")}
-                {String(output).length > 100 ? "..." : ""}
-            </text>
+
+            {expanded && (
+                <box style={{ flexDirection: "column", marginTop: 1, marginLeft: 2 }}>
+                    <text>
+                        <strong fg="cyan">Input:</strong>
+                    </text>
+                    <text>{JSON.stringify(input, null, 2)}</text>
+
+                    <text style={{ marginTop: 1 }}>
+                        <strong fg="cyan">Output:</strong>
+                    </text>
+                    <text>{String(output)}</text>
+                </box>
+            )}
+
+            {!expanded && (
+                <text fg="gray">
+                    {String(output).slice(0, 100).replace(/\n/g, " ")}
+                    {String(output).length > 100 ? "..." : ""}
+                </text>
+            )}
         </box>
     );
 };
