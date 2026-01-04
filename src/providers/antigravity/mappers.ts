@@ -15,7 +15,7 @@ export const mapTools = (
         .map((t): FunctionDeclaration => {
             const parameters = JSON.parse(JSON.stringify(t.inputSchema)) as JsonSchema;
 
-            const disallowedProperties = ["$schema", "additionalProperties"];
+            const disallowedProperties = ["$schema", "$id", "default", "examples"];
             for (const property of disallowedProperties) {
                 delete parameters[property];
             }
