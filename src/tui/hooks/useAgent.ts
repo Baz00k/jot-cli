@@ -158,6 +158,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
 
         case "ToolCall":
         case "UserInput":
+        case "Error":
             return {
                 ...state,
                 timeline,

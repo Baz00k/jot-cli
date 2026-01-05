@@ -38,6 +38,7 @@ export const TimelineItem = ({
         case "ReviewComplete":
             return <ReviewItem event={event} />;
         case "IterationLimitReached":
+        case "Error":
             return <ErrorItem event={event} />;
         case "ToolCall":
             return <ToolCallItem event={event} />;

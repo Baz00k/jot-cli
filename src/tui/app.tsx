@@ -1,10 +1,10 @@
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
-import { StrictMode, useState } from "react";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot, useKeyboard } from "@opentui/react";
+import { StrictMode, useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
 
@@ -47,10 +47,6 @@ function AgentWorkflow() {
 
     return (
         <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
-            <box style={{ borderStyle: "single", justifyContent: "center", alignItems: "center" }}>
-                <text>Jot CLI - AI Research Assistant</text>
-            </box>
-
             <Timeline focused={activeFocus === "timeline"} onApprove={handleApprove} onReject={handleReject} />
 
             <TaskInput onTaskSubmit={handleTaskSubmit} isRunning={isInputDisabled} focused={activeFocus === "input"} />

@@ -14,6 +14,7 @@ export const StatusBar = ({ isRunning }: { isRunning: boolean }) => {
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
+                minHeight: 2,
             }}
         >
             <text>Press ESC to exit</text>

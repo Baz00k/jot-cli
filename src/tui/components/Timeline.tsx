@@ -14,6 +14,8 @@ export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
     return (
         <scrollbox
             style={{
+                stickyScroll: true,
+                stickyStart: "bottom",
                 scrollbarOptions: {
                     showArrows: true,
                     trackOptions: {
@@ -29,6 +31,7 @@ export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
                 border: true,
             }}
             focused={focused}
+            title="Jot CLI - AI Research Assistant"
         >
             {entries.map((entry) => (
                 <TimelineItem

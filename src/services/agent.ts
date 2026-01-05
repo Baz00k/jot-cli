@@ -61,6 +61,11 @@ export type AgentEvent =
           readonly cycle: number;
       }
     | {
+          readonly _tag: "Error";
+          readonly message: string;
+          readonly cycle: number;
+      }
+    | {
           readonly _tag: "IterationLimitReached";
           readonly iterations: number;
           readonly lastDraft: string;
@@ -488,19 +493,27 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     const workflowFiber = yield* step().pipe(
                         Effect.tap((content) => sessionHandle.updateStatus("completed", content)),
-                        Effect.tapError((error) => {
-                            if (error instanceof UserCancel) {
-                                return sessionHandle.updateStatus("cancelled");
-                            }
-                            const message = error instanceof Error ? error.message : String(error);
-                            return sessionHandle
-                                .addEntry({
+                        Effect.tapError((error) =>
+                            Effect.gen(function* () {
+                                if (error instanceof UserCancel) {
+                                    return yield* sessionHandle.updateStatus("cancelled");
+                                }
+                                const message = error instanceof Error ? error.message : String(error);
+
+                                yield* emitEvent({
                                     _tag: "Error",
                                     message,
-                                    phase: "phase" in error ? String(error.phase) : undefined,
-                                })
-                                .pipe(Effect.andThen(sessionHandle.updateStatus("failed")));
-                        }),
+                                    cycle: 0,
+                                });
+                                return yield* sessionHandle
+                                    .addEntry({
+                                        _tag: "Error",
+                                        message,
+                                        phase: "phase" in error ? String(error.phase) : undefined,
+                                    })
+                                    .pipe(Effect.andThen(sessionHandle.updateStatus("failed")));
+                            }),
+                        ),
                         Effect.ensuring(
                             Queue.shutdown(eventQueue).pipe(
                                 Effect.andThen(Effect.logDebug("Event queue shutdown")),
