@@ -1,13 +1,11 @@
 #!/usr/bin/env bun
 import { Command } from "@effect/cli";
-import { BunContext, BunRuntime } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { Effect } from "effect";
 import { authCommand } from "@/commands/auth";
 import { configCommand } from "@/commands/config";
 import { writeCommand } from "@/commands/write";
-import { Agent } from "@/services/agent";
-import { Config } from "@/services/config";
-import { AppLogger } from "@/services/logger";
+import { UniversalLayer } from "@/runtime";
 import { startTUI } from "@/tui/app";
 import { version } from "../package.json";
 
@@ -37,6 +35,4 @@ const program = Effect.gen(function* () {
     }
 }).pipe(Effect.tapErrorCause((cause) => Effect.logError("Application error", cause)));
 
-const MainLayer = Layer.mergeAll(Agent.Default, Config.Default, AppLogger).pipe(Layer.provideMerge(BunContext.layer));
-
-program.pipe(Effect.provide(MainLayer), BunRuntime.runMain({ disablePrettyLogger: true }));
+program.pipe(Effect.provide(UniversalLayer), BunRuntime.runMain({ disablePrettyLogger: true }));
