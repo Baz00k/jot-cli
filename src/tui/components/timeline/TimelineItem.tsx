@@ -6,8 +6,19 @@ import { ErrorItem } from "./ErrorItem";
 import { ProgressItem } from "./ProgressItem";
 import { ReviewItem } from "./ReviewItem";
 import { ToolCallItem } from "./ToolCallItem";
+import { UserItem } from "./UserItem";
 
-export const TimelineItem = ({ entry, focused }: { entry: TimelineEntry; focused: boolean }) => {
+export const TimelineItem = ({
+    entry,
+    focused,
+    onApprove,
+    onReject,
+}: {
+    entry: TimelineEntry;
+    focused: boolean;
+    onApprove?: () => void;
+    onReject?: (comment?: string) => void;
+}) => {
     const { event } = entry;
     const { submitAction } = useAgentContext();
 
@@ -30,12 +41,14 @@ export const TimelineItem = ({ entry, focused }: { entry: TimelineEntry; focused
             return <ErrorItem event={event} />;
         case "ToolCall":
             return <ToolCallItem event={event} />;
+        case "UserInput":
+            return <UserItem event={event} />;
         case "UserActionRequired":
             return (
                 <FeedbackWidget
                     pendingAction={{ draft: event.draft, cycle: event.cycle }}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
+                    onApprove={onApprove ?? handleApprove}
+                    onReject={onReject ?? handleReject}
                     focused={focused}
                 />
             );

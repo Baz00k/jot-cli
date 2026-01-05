@@ -11,8 +11,6 @@ export const DraftItem = ({ event, cycle }: DraftItemProps) => {
             style={{
                 marginTop: 1,
                 marginBottom: 1,
-                borderStyle: "double",
-                borderColor: "cyan",
                 flexDirection: "column",
                 padding: 1,
             }}

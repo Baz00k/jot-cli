@@ -56,6 +56,11 @@ export type AgentEvent =
           readonly output: unknown;
       }
     | {
+          readonly _tag: "UserInput";
+          readonly content: string;
+          readonly cycle: number;
+      }
+    | {
           readonly _tag: "IterationLimitReached";
           readonly iterations: number;
           readonly lastDraft: string;
@@ -250,6 +255,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 cycle,
                             });
 
+                            if (cycle === 1 && !isRevision) {
+                                yield* emitEvent({
+                                    _tag: "UserInput",
+                                    content: options.prompt,
+                                    cycle,
+                                });
+                            }
+
                             const writerPrompt = writerTask.render({
                                 goal: options.prompt,
                                 context:
@@ -392,6 +405,15 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             yield* Ref.set(userActionDeferred, deferred);
 
                             const userAction = yield* Deferred.await(deferred);
+
+                            yield* emitEvent({
+                                _tag: "UserInput",
+                                content:
+                                    userAction.type === "approve"
+                                        ? "Approved"
+                                        : `Rejected: ${userAction.comment ?? "No comment"}`,
+                                cycle,
+                            });
 
                             yield* Ref.update(stateRef, (s) =>
                                 s.add(

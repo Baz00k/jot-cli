@@ -3,35 +3,49 @@ import { TimelineItem } from "./timeline/TimelineItem";
 
 interface TimelineProps {
     focused: boolean;
+    onApprove?: () => void;
+    onReject?: (comment?: string) => void;
 }
 
-export const Timeline = ({ focused }: TimelineProps) => {
+export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
     const { state } = useAgentContext();
     const { timeline: entries, streamBuffer, streamPhase } = state;
 
     return (
-        <box
+        <scrollbox
             style={{
+                scrollbarOptions: {
+                    showArrows: true,
+                    trackOptions: {
+                        foregroundColor: "#7aa2f7",
+                        backgroundColor: "#414868",
+                    },
+                },
+                contentOptions: {
+                    flexDirection: "column",
+                    padding: 1,
+                },
                 flexGrow: 1,
                 border: true,
-                flexDirection: "column",
-                padding: 1,
             }}
+            focused={focused}
         >
             {entries.map((entry) => (
                 <TimelineItem
                     key={entry.id}
                     entry={entry}
                     focused={focused && entry.event._tag === "UserActionRequired"}
+                    onApprove={onApprove}
+                    onReject={onReject}
                 />
             ))}
 
             {streamPhase && (
-                <box style={{ marginTop: 1, borderColor: "blue", flexDirection: "column" }}>
-                    <text>{streamPhase === "drafting" ? "Drafting..." : "Processing..."}</text>
-                    <text>{streamBuffer}</text>
+                <box style={{ marginTop: 1, borderColor: "gray", flexDirection: "column", borderStyle: "rounded" }}>
+                    <text fg="gray">{streamPhase === "drafting" ? "Drafting..." : "Processing..."}</text>
+                    <text fg="#a9b1d6">{streamBuffer}</text>
                 </box>
             )}
-        </box>
+        </scrollbox>
     );
 };
