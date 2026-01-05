@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { authCommand } from "@/commands/auth";
 import { configCommand } from "@/commands/config";
 import { writeCommand } from "@/commands/write";
+import { TUIStartupError } from "@/domain/errors";
 import { UniversalLayer } from "@/runtime";
 import { startTUI } from "@/tui/app";
 import { version } from "../package.json";
@@ -27,7 +28,7 @@ const program = Effect.gen(function* () {
         // Launch TUI when no arguments provided
         yield* Effect.tryPromise({
             try: () => startTUI(),
-            catch: (error) => new Error(`Failed to start TUI: ${error}`),
+            catch: (error) => new TUIStartupError({ cause: error, message: `Failed to start TUI: ${error}` }),
         });
     } else {
         // Run normal CLI with arguments
