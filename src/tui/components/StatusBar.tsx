@@ -1,5 +1,6 @@
-import { useKeyboard } from "@opentui/react";
 import { useConfigContext } from "@/tui/context/ConfigContext";
+import { useRenderer } from "@/tui/context/RendererContext";
+import { useKeyboard } from "@opentui/react";
 
 export interface StatusBarProps {
     isRunning: boolean;
@@ -8,12 +9,16 @@ export interface StatusBarProps {
 
 export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
     const { config } = useConfigContext();
+    const renderer = useRenderer();
 
     useKeyboard((key) => {
         if (disabled) return;
 
         if (key.name === "escape") {
-            process.exit(0);
+            // Reset window title before destroying renderer
+            renderer.setTerminalTitle("");
+            renderer.destroy();
+            process.kill(process.pid, "SIGINT");
         }
     });
 

@@ -1,8 +1,3 @@
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
-import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
-import { Effect } from "effect";
-import { useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
@@ -10,6 +5,12 @@ import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
+import { RendererProvider } from "@/tui/context/RendererContext";
+import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot, useKeyboard } from "@opentui/react";
+import { Effect } from "effect";
+import { StrictMode, useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
 
@@ -56,7 +57,7 @@ function AgentWorkflow() {
         setActiveFocus("timeline");
     };
 
-    const isInputDisabled =
+    const isAgentRunning =
         isDialogOpen ||
         (state.phase !== "idle" &&
             state.phase !== "completed" &&
@@ -73,7 +74,7 @@ function AgentWorkflow() {
 
             <TaskInput
                 onTaskSubmit={handleTaskSubmit}
-                isRunning={isInputDisabled}
+                isRunning={isAgentRunning}
                 focused={!isDialogOpen && activeFocus === "input"}
             />
 
@@ -111,7 +112,13 @@ export async function startTUI() {
         },
     });
 
-    createRoot(renderer).render(<App />);
+    createRoot(renderer).render(
+        <StrictMode>
+            <RendererProvider value={renderer}>
+                <App />
+            </RendererProvider>
+        </StrictMode>,
+    );
 
     renderer.setTerminalTitle("Jot CLI");
     renderer.start();

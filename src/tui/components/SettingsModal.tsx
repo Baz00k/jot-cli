@@ -39,10 +39,14 @@ export const SettingsModal = ({ onClose, dialogId }: { onClose: () => void; dial
             updateConfig({
                 writerModel: writerBuffer.text,
                 reviewerModel: reviewerBuffer.text,
-            }).then(() => {
-                setStatus("idle");
-                onClose();
-            });
+            })
+                .then(() => {
+                    setStatus("idle");
+                    onClose();
+                })
+                .catch(() => {
+                    setStatus("idle");
+                });
             return;
         }
 

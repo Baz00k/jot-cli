@@ -52,7 +52,7 @@ export const useTextBuffer = (initialText = "") => {
             // Find current line and cursor position within it
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                if (!line && line !== "") break; // Should not happen with split
+                if (line === undefined) break;
 
                 const lineLen = line.length + 1;
                 if (currentPos + lineLen > prev.cursor) {

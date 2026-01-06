@@ -14,7 +14,7 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
         if (!focused || isRunning) return;
 
         if (key.name === "return") {
-            if (key.name === "return" && (key.ctrl || key.meta)) {
+            if (key.ctrl || key.meta) {
                 buffer.insert("\n");
             } else {
                 if (buffer.text.trim()) {
