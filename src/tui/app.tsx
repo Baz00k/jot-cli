@@ -1,3 +1,4 @@
+import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
 import { StatusBar } from "@/tui/components/StatusBar";
@@ -7,6 +8,7 @@ import { EffectProvider } from "@/tui/context/EffectContext";
 import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard } from "@opentui/react";
+import { Effect } from "effect";
 import { useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
@@ -104,8 +106,7 @@ export async function startTUI() {
         consoleOptions: {
             keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
             onCopySelection: (text) => {
-                // TODO: Implement proper copy functionality
-                Bun.spawn(["pbcopy"], { stdin: new Blob([text], { type: "text/plain" }) });
+                Effect.runPromise(copyToClipboard(text));
             },
         },
     });

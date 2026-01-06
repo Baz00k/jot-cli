@@ -180,3 +180,8 @@ export class TUIStartupError extends Data.TaggedError("TUIStartupError")<{
     readonly cause: unknown;
     readonly message?: string;
 }> {}
+
+export class ClipboardError extends Data.TaggedError("ClipboardError")<{
+    readonly cause?: unknown;
+    readonly message: string;
+}> {}
