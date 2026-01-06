@@ -119,14 +119,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     const reasoningEffort = options.reasoningEffort ?? "high";
 
                     const writerModel = yield* llm.createModel({
-                        name: options.modelWriter ?? DEFAULT_MODEL_WRITER,
+                        name: options.modelWriter ?? userConfig.writerModel ?? DEFAULT_MODEL_WRITER,
                         role: "writer",
                         reasoning,
                         reasoningEffort,
                     });
 
                     const reviewerModel = yield* llm.createModel({
-                        name: options.modelReviewer ?? DEFAULT_MODEL_REVIEWER,
+                        name: options.modelReviewer ?? userConfig.reviewerModel ?? DEFAULT_MODEL_REVIEWER,
                         role: "reviewer",
                         reasoning,
                         reasoningEffort,
@@ -208,13 +208,11 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     iterations: state.iterationCount,
                                     lastDraft,
                                 });
-                                return yield* Effect.fail(
-                                    new MaxIterationsReached({
-                                        iterations: state.iterationCount,
-                                        lastDraft,
-                                        totalCost,
-                                    }),
-                                );
+                                return yield* new MaxIterationsReached({
+                                    iterations: state.iterationCount,
+                                    lastDraft,
+                                    totalCost,
+                                });
                             }
 
                             const isRevision = Option.isSome(state.latestDraft);
@@ -548,20 +546,16 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             Effect.gen(function* () {
                                 const deferred = yield* Ref.get(userActionDeferred);
                                 if (!deferred) {
-                                    return yield* Effect.fail(
-                                        new NoUserActionPending({
-                                            message:
-                                                "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
-                                        }),
-                                    );
+                                    return yield* new NoUserActionPending({
+                                        message:
+                                            "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
+                                    });
                                 }
                                 const isDone = yield* Deferred.isDone(deferred);
                                 if (isDone) {
-                                    return yield* Effect.fail(
-                                        new NoUserActionPending({
-                                            message: "User action was already submitted for this cycle.",
-                                        }),
-                                    );
+                                    return yield* new NoUserActionPending({
+                                        message: "User action was already submitted for this cycle.",
+                                    });
                                 }
                                 yield* Deferred.succeed(deferred, action);
                             }),
