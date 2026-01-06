@@ -1,7 +1,7 @@
-import { useConfigContext } from "@/tui/context/ConfigContext";
-import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 import { type DialogId, useDialogKeyboard } from "@opentui-ui/dialog/react";
 import { useEffect, useState } from "react";
+import { useConfigContext } from "@/tui/context/ConfigContext";
+import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 
 export const SettingsModal = ({ onClose, dialogId }: { onClose: () => void; dialogId: DialogId }) => {
     const { config, updateConfig } = useConfigContext();

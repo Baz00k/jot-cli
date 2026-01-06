@@ -1,3 +1,8 @@
+import { createCliRenderer } from "@opentui/core";
+import { createRoot, useKeyboard } from "@opentui/react";
+import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
+import { Effect } from "effect";
+import { useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
@@ -5,11 +10,6 @@ import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
-import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
-import { Effect } from "effect";
-import { useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
 

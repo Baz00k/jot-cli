@@ -1,3 +1,5 @@
+import { BunContext } from "@effect/platform-bun";
+import { Layer, type ManagedRuntime } from "effect";
 import { Agent } from "@/services/agent";
 import { Clipboard } from "@/services/clipboard";
 import { Config } from "@/services/config";
@@ -8,8 +10,6 @@ import { Prompts } from "@/services/prompts";
 import { Session } from "@/services/session";
 import { UserDirs } from "@/services/user-dirs";
 import { Web } from "@/services/web";
-import { BunContext } from "@effect/platform-bun";
-import { Layer, type ManagedRuntime } from "effect";
 
 export const UniversalLayer = Layer.mergeAll(
     Agent.Default,
@@ -21,7 +21,7 @@ export const UniversalLayer = Layer.mergeAll(
     Session.Default,
     UserDirs.Default,
     Web.Default,
-    Clipboard.Default
+    Clipboard.Default,
 ).pipe(Layer.provideMerge(BunContext.layer));
 
 export type UniversalRuntime = ManagedRuntime.ManagedRuntime<
