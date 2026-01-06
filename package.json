@@ -6,6 +6,7 @@
         "jot": "src/index.ts"
     },
     "scripts": {
+        "dev": "DEV=true bun run ./src/index.ts",
         "check": "biome check . && tsc --noEmit",
         "check:fix": "biome check --write && tsc --noEmit",
         "compile": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot",
@@ -21,6 +22,9 @@
         "@effect/platform-bun": "^0.87.0",
         "@openauthjs/openauth": "^0.4.3",
         "@openrouter/ai-sdk-provider": "^1.5.4",
+        "@opentui-ui/dialog": "^0.0.5",
+        "@opentui/core": "^0.1.67",
+        "@opentui/react": "^0.1.67",
         "@types/turndown": "^5.0.6",
         "ai": "^6.0.6",
         "cli-highlight": "^2.1.11",
@@ -30,6 +34,7 @@
         "ignore": "^7.0.5",
         "marked": "^16.4.2",
         "marked-terminal": "^7.3.0",
+        "react": "^19.2.3",
         "turndown": "^7.2.2"
     },
     "devDependencies": {
@@ -39,7 +44,9 @@
         "@total-typescript/tsconfig": "^1.0.4",
         "@tsconfig/bun": "^1.0.10",
         "@types/bun": "latest",
-        "@types/json-schema": "^7.0.15"
+        "@types/json-schema": "^7.0.15",
+        "@types/react": "^19.2.7",
+        "react-devtools-core": "7"
     },
     "peerDependencies": {
         "typescript": "^5.9.3"

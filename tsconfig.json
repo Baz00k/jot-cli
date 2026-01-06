@@ -13,6 +13,10 @@
 
         "paths": {
             "@/*": ["./src/*"]
-        }
+        },
+
+        "jsx": "react-jsx",
+        "jsxImportSource": "@opentui/react",
+        "lib": ["ESNext", "DOM"]
     }
 }

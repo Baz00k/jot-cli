@@ -10,13 +10,6 @@ import {
     shouldRethrow,
     type WorkflowSnapshot,
 } from "@/commands/utils/workflow-errors";
-import {
-    DEFAULT_ANTIGRAVITY_REVIEWER,
-    DEFAULT_ANTIGRAVITY_WRITER,
-    DEFAULT_MAX_AGENT_ITERATIONS,
-    DEFAULT_MODEL_REVIEWER,
-    DEFAULT_MODEL_WRITER,
-} from "@/domain/constants";
 import { UserCancel, WorkflowErrorHandled } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
@@ -255,22 +248,13 @@ export const writeCommand = Command.make(
 
             let currentWindowContent = "";
 
-            const defaultWriter = !apiKey && isAntigravityAvailable ? DEFAULT_ANTIGRAVITY_WRITER : DEFAULT_MODEL_WRITER;
-            const defaultReviewer =
-                !apiKey && isAntigravityAvailable ? DEFAULT_ANTIGRAVITY_REVIEWER : DEFAULT_MODEL_REVIEWER;
-
             const agentSession = yield* agent.run({
                 prompt: userPrompt,
-                modelWriter: Option.getOrElse(options.writer, () => userConfig.writerModel ?? defaultWriter),
-                modelReviewer: Option.getOrElse(options.reviewer, () => userConfig.reviewerModel ?? defaultReviewer),
-                reasoningEffort: Option.getOrElse(options.reasoningEffort, () => userConfig.reasoningEffort ?? "high"),
-                reasoning: Option.map(options.noReasoning, (no) => !no).pipe(
-                    Option.getOrElse(() => userConfig.reasoning ?? true),
-                ),
-                maxIterations: Option.getOrElse(
-                    options.maxIterations,
-                    () => userConfig.agentMaxIterations ?? DEFAULT_MAX_AGENT_ITERATIONS,
-                ),
+                modelWriter: Option.getOrUndefined(options.writer),
+                modelReviewer: Option.getOrUndefined(options.reviewer),
+                reasoningEffort: Option.getOrUndefined(options.reasoningEffort),
+                reasoning: Option.map(options.noReasoning, (no) => !no).pipe((v) => Option.getOrUndefined(v)),
+                maxIterations: Option.getOrUndefined(options.maxIterations),
             });
 
             const processEvent = (event: AgentEvent) =>

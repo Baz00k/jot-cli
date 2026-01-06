@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 import { Command } from "@effect/cli";
-import { BunContext, BunRuntime } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { Effect } from "effect";
 import { authCommand } from "@/commands/auth";
 import { configCommand } from "@/commands/config";
 import { writeCommand } from "@/commands/write";
-import { Agent } from "@/services/agent";
-import { Config } from "@/services/config";
-import { AppLogger } from "@/services/logger";
+import { TUIStartupError } from "@/domain/errors";
+import { UniversalLayer } from "@/runtime";
+import { startTUI } from "@/tui/app";
 import { version } from "../package.json";
 
 const command = Command.make("jot").pipe(
@@ -20,10 +20,20 @@ const cli = Command.run(command, {
     version: version,
 });
 
-const program = Effect.suspend(() => cli(process.argv)).pipe(
-    Effect.tapErrorCause((cause) => Effect.logError("Application error", cause)),
-);
+const program = Effect.gen(function* () {
+    // Check if no subcommand was provided
+    const args = process.argv.slice(2);
 
-const MainLayer = Layer.mergeAll(Agent.Default, Config.Default, AppLogger).pipe(Layer.provideMerge(BunContext.layer));
+    if (args.length === 0) {
+        // Launch TUI when no arguments provided
+        yield* Effect.tryPromise({
+            try: () => startTUI(),
+            catch: (error) => new TUIStartupError({ cause: error, message: `Failed to start TUI: ${error}` }),
+        });
+    } else {
+        // Run normal CLI with arguments
+        yield* Effect.suspend(() => cli(process.argv));
+    }
+}).pipe(Effect.tapErrorCause((cause) => Effect.logError("Application error", cause)));
 
-program.pipe(Effect.provide(MainLayer), BunRuntime.runMain({ disablePrettyLogger: true }));
+program.pipe(Effect.provide(UniversalLayer), BunRuntime.runMain({ disablePrettyLogger: true }));

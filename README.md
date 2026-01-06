@@ -41,6 +41,25 @@ from the releases page and add it to your PATH.
 jot write "Draft a conclusion for the paper summarizing the key findings on LLM reasoning."
 ```
 
+## Interactive TUI Mode
+
+Launch the interactive Terminal User Interface by running `jot` without any arguments:
+
+```bash
+jot
+```
+
+For development, use:
+
+```bash
+bun dev
+```
+
+### Key Features
+
+- **Interactive Task Input**: Easily draft and refine your prompts.
+- **Visual Timeline**: Track agent actions, tool calls, and review steps in real-time.
+
 ## Google Antigravity Provider
 
 Jot CLI supports the internal Google Antigravity API as a provider.

@@ -50,6 +50,22 @@ export type AgentEvent =
           readonly cycle: number;
       }
     | {
+          readonly _tag: "ToolCall";
+          readonly name: string;
+          readonly input: unknown;
+          readonly output: unknown;
+      }
+    | {
+          readonly _tag: "UserInput";
+          readonly content: string;
+          readonly cycle: number;
+      }
+    | {
+          readonly _tag: "Error";
+          readonly message: string;
+          readonly cycle: number;
+      }
+    | {
           readonly _tag: "IterationLimitReached";
           readonly iterations: number;
           readonly lastDraft: string;
@@ -103,14 +119,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     const reasoningEffort = options.reasoningEffort ?? "high";
 
                     const writerModel = yield* llm.createModel({
-                        name: options.modelWriter ?? DEFAULT_MODEL_WRITER,
+                        name: options.modelWriter ?? userConfig.writerModel ?? DEFAULT_MODEL_WRITER,
                         role: "writer",
                         reasoning,
                         reasoningEffort,
                     });
 
                     const reviewerModel = yield* llm.createModel({
-                        name: options.modelReviewer ?? DEFAULT_MODEL_REVIEWER,
+                        name: options.modelReviewer ?? userConfig.reviewerModel ?? DEFAULT_MODEL_REVIEWER,
                         role: "reviewer",
                         reasoning,
                         reasoningEffort,
@@ -157,7 +173,18 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     const saveToolCall = (record: ToolCallRecord) => {
                         Runtime.runPromise(runtime)(
-                            sessionHandle.addToolCall(record.name, record.input, record.output),
+                            Effect.all(
+                                [
+                                    sessionHandle.addToolCall(record.name, record.input, record.output),
+                                    Queue.offer(eventQueue, {
+                                        _tag: "ToolCall",
+                                        name: record.name,
+                                        input: record.input,
+                                        output: record.output,
+                                    } as const),
+                                ],
+                                { discard: true },
+                            ),
                         );
                     };
 
@@ -181,13 +208,11 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     iterations: state.iterationCount,
                                     lastDraft,
                                 });
-                                return yield* Effect.fail(
-                                    new MaxIterationsReached({
-                                        iterations: state.iterationCount,
-                                        lastDraft,
-                                        totalCost,
-                                    }),
-                                );
+                                return yield* new MaxIterationsReached({
+                                    iterations: state.iterationCount,
+                                    lastDraft,
+                                    totalCost,
+                                });
                             }
 
                             const isRevision = Option.isSome(state.latestDraft);
@@ -232,6 +257,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 message: isRevision ? "Revising draft..." : "Drafting initial content...",
                                 cycle,
                             });
+
+                            if (cycle === 1 && !isRevision) {
+                                yield* emitEvent({
+                                    _tag: "UserInput",
+                                    content: options.prompt,
+                                    cycle,
+                                });
+                            }
 
                             const writerPrompt = writerTask.render({
                                 goal: options.prompt,
@@ -376,6 +409,15 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             const userAction = yield* Deferred.await(deferred);
 
+                            yield* emitEvent({
+                                _tag: "UserInput",
+                                content:
+                                    userAction.type === "approve"
+                                        ? "Approved"
+                                        : `Rejected: ${userAction.comment ?? "No comment"}`,
+                                cycle,
+                            });
+
                             yield* Ref.update(stateRef, (s) =>
                                 s.add(
                                     new UserFeedback({
@@ -449,19 +491,27 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     const workflowFiber = yield* step().pipe(
                         Effect.tap((content) => sessionHandle.updateStatus("completed", content)),
-                        Effect.tapError((error) => {
-                            if (error instanceof UserCancel) {
-                                return sessionHandle.updateStatus("cancelled");
-                            }
-                            const message = error instanceof Error ? error.message : String(error);
-                            return sessionHandle
-                                .addEntry({
+                        Effect.tapError((error) =>
+                            Effect.gen(function* () {
+                                if (error instanceof UserCancel) {
+                                    return yield* sessionHandle.updateStatus("cancelled");
+                                }
+                                const message = error instanceof Error ? error.message : String(error);
+
+                                yield* emitEvent({
                                     _tag: "Error",
                                     message,
-                                    phase: "phase" in error ? String(error.phase) : undefined,
-                                })
-                                .pipe(Effect.andThen(sessionHandle.updateStatus("failed")));
-                        }),
+                                    cycle: 0,
+                                });
+                                return yield* sessionHandle
+                                    .addEntry({
+                                        _tag: "Error",
+                                        message,
+                                        phase: "phase" in error ? String(error.phase) : undefined,
+                                    })
+                                    .pipe(Effect.andThen(sessionHandle.updateStatus("failed")));
+                            }),
+                        ),
                         Effect.ensuring(
                             Queue.shutdown(eventQueue).pipe(
                                 Effect.andThen(Effect.logDebug("Event queue shutdown")),
@@ -496,20 +546,16 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             Effect.gen(function* () {
                                 const deferred = yield* Ref.get(userActionDeferred);
                                 if (!deferred) {
-                                    return yield* Effect.fail(
-                                        new NoUserActionPending({
-                                            message:
-                                                "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
-                                        }),
-                                    );
+                                    return yield* new NoUserActionPending({
+                                        message:
+                                            "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
+                                    });
                                 }
                                 const isDone = yield* Deferred.isDone(deferred);
                                 if (isDone) {
-                                    return yield* Effect.fail(
-                                        new NoUserActionPending({
-                                            message: "User action was already submitted for this cycle.",
-                                        }),
-                                    );
+                                    return yield* new NoUserActionPending({
+                                        message: "User action was already submitted for this cycle.",
+                                    });
                                 }
                                 yield* Deferred.succeed(deferred, action);
                             }),
