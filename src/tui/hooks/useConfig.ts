@@ -1,7 +1,7 @@
-import type { UniversalRuntime } from "@/runtime";
-import { Config, type UserConfig } from "@/services/config";
 import { Effect } from "effect";
 import { useCallback, useEffect, useState } from "react";
+import type { UniversalRuntime } from "@/runtime";
+import { Config, type UserConfig } from "@/services/config";
 
 export interface UseConfigReturn {
     readonly config: UserConfig | null;
