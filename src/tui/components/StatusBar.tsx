@@ -1,11 +1,24 @@
 import { useKeyboard } from "@opentui/react";
+import { useConfigContext } from "@/tui/context/ConfigContext";
 
-export const StatusBar = ({ isRunning }: { isRunning: boolean }) => {
+export interface StatusBarProps {
+    isRunning: boolean;
+    disabled?: boolean;
+}
+
+export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
+    const { config } = useConfigContext();
+
     useKeyboard((key) => {
+        if (disabled) return;
+
         if (key.name === "escape") {
             process.exit(0);
         }
     });
+
+    const writer = config?.writerModel ?? "default";
+    const reviewer = config?.reviewerModel ?? "default";
 
     return (
         <box
@@ -17,7 +30,10 @@ export const StatusBar = ({ isRunning }: { isRunning: boolean }) => {
                 minHeight: 2,
             }}
         >
-            <text>Press ESC to exit</text>
+            <text>Esc: Exit | F2: Settings</text>
+            <text>
+                W: {writer} | R: {reviewer}
+            </text>
             <text>{isRunning ? "Status: Running" : "Status: Ready"}</text>
         </box>
     );

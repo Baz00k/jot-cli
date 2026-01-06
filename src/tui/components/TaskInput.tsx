@@ -71,7 +71,7 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                 border: true,
                 borderColor: focused ? "cyan" : "gray",
                 flexDirection: "column",
-                minHeight: 3,
+                minHeight: 4,
             }}
         >
             <box style={{ flexGrow: 1, flexDirection: "row", flexWrap: "wrap", padding: 1 }}>

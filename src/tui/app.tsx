@@ -1,19 +1,34 @@
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
+import { SettingsModal } from "@/tui/components/SettingsModal";
 import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
+import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
+import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard } from "@opentui/react";
-import { StrictMode, useState } from "react";
+import { useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
 
 function AgentWorkflow() {
     const { state, start, submitAction, cancel } = useAgentContext();
+    const dialog = useDialog();
+    const isDialogOpen = useDialogState((s) => s.isOpen);
 
     const [activeFocus, setActiveFocus] = useState<"input" | "timeline">("input");
 
     useKeyboard((key) => {
+        if (isDialogOpen) return;
+
+        if (key.name === "f2") {
+            dialog.prompt({
+                content: (ctx) => <SettingsModal onClose={ctx.dismiss} dialogId={ctx.dialogId} />,
+                size: "large",
+            });
+            return;
+        }
+
         if (key.name === "tab") {
             setActiveFocus((prev) => (prev === "input" ? "timeline" : "input"));
         }
@@ -40,18 +55,27 @@ function AgentWorkflow() {
     };
 
     const isInputDisabled =
-        state.phase !== "idle" &&
-        state.phase !== "completed" &&
-        state.phase !== "failed" &&
-        state.phase !== "cancelled";
+        isDialogOpen ||
+        (state.phase !== "idle" &&
+            state.phase !== "completed" &&
+            state.phase !== "failed" &&
+            state.phase !== "cancelled");
 
     return (
         <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
-            <Timeline focused={activeFocus === "timeline"} onApprove={handleApprove} onReject={handleReject} />
+            <Timeline
+                focused={!isDialogOpen && activeFocus === "timeline"}
+                onApprove={handleApprove}
+                onReject={handleReject}
+            />
 
-            <TaskInput onTaskSubmit={handleTaskSubmit} isRunning={isInputDisabled} focused={activeFocus === "input"} />
+            <TaskInput
+                onTaskSubmit={handleTaskSubmit}
+                isRunning={isInputDisabled}
+                focused={!isDialogOpen && activeFocus === "input"}
+            />
 
-            <StatusBar isRunning={state.phase !== "idle" && state.phase !== "completed"} />
+            <StatusBar isRunning={state.phase !== "idle" && state.phase !== "completed"} disabled={isDialogOpen} />
         </box>
     );
 }
@@ -61,9 +85,13 @@ function App() {
         // @ts-expect-error ErrorBoundary component type mismatch with opentui JSX
         <ErrorBoundary>
             <EffectProvider>
-                <AgentProvider>
-                    <AgentWorkflow />
-                </AgentProvider>
+                <ConfigProvider>
+                    <DialogProvider size="large">
+                        <AgentProvider>
+                            <AgentWorkflow />
+                        </AgentProvider>
+                    </DialogProvider>
+                </ConfigProvider>
             </EffectProvider>
         </ErrorBoundary>
     );
@@ -72,13 +100,17 @@ function App() {
 export async function startTUI() {
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
+        gatherStats: false,
+        consoleOptions: {
+            keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
+            onCopySelection: (text) => {
+                // TODO: Implement proper copy functionality
+                Bun.spawn(["pbcopy"], { stdin: new Blob([text], { type: "text/plain" }) });
+            },
+        },
     });
 
-    createRoot(renderer).render(
-        <StrictMode>
-            <App />
-        </StrictMode>,
-    );
+    createRoot(renderer).render(<App />);
 
     renderer.setTerminalTitle("Jot CLI");
     renderer.start();

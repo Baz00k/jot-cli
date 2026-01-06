@@ -32,6 +32,7 @@ export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
             }}
             focused={focused}
             title="Jot CLI - AI Research Assistant"
+            titleAlignment="center"
         >
             {entries.map((entry) => (
                 <TimelineItem
