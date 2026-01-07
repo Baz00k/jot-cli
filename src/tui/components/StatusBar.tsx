@@ -1,6 +1,6 @@
-import { useKeyboard } from "@opentui/react";
 import { useConfigContext } from "@/tui/context/ConfigContext";
 import { useRenderer } from "@/tui/context/RendererContext";
+import { useKeyboard } from "@opentui/react";
 
 export interface StatusBarProps {
     isRunning: boolean;
@@ -32,7 +32,7 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
-                minHeight: 2,
+                minHeight: 3,
             }}
         >
             <text>Esc: Exit | F2: Settings</text>
