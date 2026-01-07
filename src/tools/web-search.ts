@@ -1,7 +1,7 @@
-import { Web } from "@/services/web";
 import { jsonSchema, tool } from "ai";
 import dedent from "dedent";
 import { Effect, JSONSchema, Match, Schema } from "effect";
+import { Web } from "@/services/web";
 
 const webSearchSchema = Schema.Struct({
     query: Schema.String.annotations({
@@ -44,7 +44,7 @@ export const webSearchTool = tool({
                             WebSearchError: (e) => e.message,
                             HttpBodyError: () => "Failed to create request body",
                         }),
-                        Match.orElse(() => "Unknown error occurred")
+                        Match.orElse(() => "Unknown error occurred"),
                     );
                     return Effect.succeed(`Error searching web: ${message}`);
                 }),
