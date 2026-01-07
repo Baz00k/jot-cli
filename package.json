@@ -23,10 +23,10 @@
         "@openauthjs/openauth": "^0.4.3",
         "@openrouter/ai-sdk-provider": "^1.5.4",
         "@opentui-ui/dialog": "^0.0.5",
-        "@opentui/core": "^0.1.67",
-        "@opentui/react": "^0.1.67",
+        "@opentui/core": "^0.1.69",
+        "@opentui/react": "^0.1.69",
         "@types/turndown": "^5.0.6",
-        "ai": "^6.0.6",
+        "ai": "^6.0.16",
         "cli-highlight": "^2.1.11",
         "dedent": "^1.7.1",
         "effect": "^3.19.14",
@@ -46,7 +46,7 @@
         "@types/bun": "latest",
         "@types/json-schema": "^7.0.15",
         "@types/react": "^19.2.7",
-        "react-devtools-core": "7"
+        "react-devtools-core": "^7.0.1"
     },
     "peerDependencies": {
         "typescript": "^5.9.3"
