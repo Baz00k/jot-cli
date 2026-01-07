@@ -27,6 +27,14 @@ export const searchFilesTool = tool({
                 totalResults: results.length,
                 results: results,
             })),
+            Effect.catchAll((error) =>
+                Effect.succeed({
+                    pattern,
+                    totalResults: 0,
+                    results: [],
+                    error: `Error searching files: ${error.message}`,
+                }),
+            ),
             Effect.provide(ProjectFiles.Default),
         );
 

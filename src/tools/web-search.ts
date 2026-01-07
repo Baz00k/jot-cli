@@ -1,7 +1,7 @@
+import { Web } from "@/services/web";
 import { jsonSchema, tool } from "ai";
 import dedent from "dedent";
-import { Effect, JSONSchema, Schema } from "effect";
-import { Web } from "@/services/web";
+import { Effect, JSONSchema, Match, Schema } from "effect";
 
 const webSearchSchema = Schema.Struct({
     query: Schema.String.annotations({
@@ -27,15 +27,29 @@ type WebSearchInput = Schema.Schema.Type<typeof webSearchSchema>;
 
 export const webSearchTool = tool({
     description: dedent`
-        Search the web using Exa AI - performs real-time web searches and can scrape content from specific URLs.
-        Supports configurable result counts and returns the content from the most relevant websites.`,
+        Search the web using AI - performs real-time web searches and can scrape content from specific URLs.
+        Provides up-to-date information for current events and recent data.
+        Use this tool to research information and find sources.
+        `,
     inputSchema: jsonSchema<WebSearchInput>(JSONSchema.make(webSearchSchema)),
     execute: async ({ query, numResults, livecrawl, type, contextMaxCharacters }) => {
         const result = await Effect.runPromise(
             Effect.gen(function* () {
                 const web = yield* Web;
                 return yield* web.search(query, { numResults, livecrawl, type, contextMaxCharacters });
-            }).pipe(Effect.provide(Web.Default)),
+            }).pipe(
+                Effect.catchAll((error) => {
+                    const message = Match.value(error).pipe(
+                        Match.tags({
+                            WebSearchError: (e) => e.message,
+                            HttpBodyError: () => "Failed to create request body",
+                        }),
+                        Match.orElse(() => "Unknown error occurred")
+                    );
+                    return Effect.succeed(`Error searching web: ${message}`);
+                }),
+                Effect.provide(Web.Default),
+            ),
         );
         return result;
     },

@@ -27,7 +27,10 @@ export const readFileTool = tool({
     execute: async ({ filePath, lineRange }) => {
         const execute = ProjectFiles.readFile(filePath, {
             lineRange,
-        }).pipe(Effect.provide(ProjectFiles.Default));
+        }).pipe(
+            Effect.catchAll((error) => Effect.succeed(`Error reading file: ${error.message}`)),
+            Effect.provide(ProjectFiles.Default),
+        );
 
         return await Effect.runPromise(execute);
     },

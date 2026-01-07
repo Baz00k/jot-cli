@@ -21,7 +21,10 @@ export const listFilesTool = tool({
     description: "List files in a directory to understand project structure.",
     inputSchema: jsonSchema<ListFilesInput>(JSONSchema.make(listFilesSchema)),
     execute: async ({ dirPath, recursive }) => {
-        const execute = ProjectFiles.listFiles(dirPath, recursive).pipe(Effect.provide(ProjectFiles.Default));
+        const execute = ProjectFiles.listFiles(dirPath, recursive).pipe(
+            Effect.catchAll((error) => Effect.succeed(`Error listing files: ${error.message}`)),
+            Effect.provide(ProjectFiles.Default),
+        );
 
         return await Effect.runPromise(execute);
     },

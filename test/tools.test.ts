@@ -84,33 +84,30 @@ describe("Tools Wrappers", () => {
 
         test("fails if oldString and newString are the same", async () => {
             await fs.writeFile(path.join(testDir, "test.txt"), "hello world");
-            expect(
-                editFileTool.execute?.(
-                    { filePath: "test.txt", oldString: "world", newString: "world" },
-                    {} as ToolExecutionOptions,
-                ),
-            ).rejects.toThrow("oldString and newString must be different");
+            const result = await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "world", newString: "world" },
+                {} as ToolExecutionOptions,
+            );
+            expect(result).toBe("Error editing file: oldString and newString must be different");
         });
 
         test("fails if oldString is not found", async () => {
             await fs.writeFile(path.join(testDir, "test.txt"), "hello world");
-            expect(
-                editFileTool.execute?.(
-                    { filePath: "test.txt", oldString: "universe", newString: "galaxy" },
-                    {} as ToolExecutionOptions,
-                ),
-            ).rejects.toThrow("oldString not found in content");
+            const result = await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "universe", newString: "galaxy" },
+                {} as ToolExecutionOptions,
+            );
+            expect(result).toBe("Error editing file: oldString not found in content");
         });
 
         test("fails if multiple matches exist and replaceAll is false", async () => {
             await fs.writeFile(path.join(testDir, "test.txt"), "hello world hello world");
-            expect(
-                editFileTool.execute?.(
-                    { filePath: "test.txt", oldString: "world", newString: "universe" },
-                    {} as ToolExecutionOptions,
-                ),
-            ).rejects.toThrow(
-                "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match.",
+            const result = await editFileTool.execute?.(
+                { filePath: "test.txt", oldString: "world", newString: "universe" },
+                {} as ToolExecutionOptions,
+            );
+            expect(result).toBe(
+                "Error editing file: Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match.",
             );
         });
 

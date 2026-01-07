@@ -22,7 +22,10 @@ export const writeFileTool = tool({
     description: "Write or overwrite content to a file. USE WITH CAUTION.",
     inputSchema: jsonSchema<WriteFileInput>(JSONSchema.make(writeFileSchema)),
     execute: async ({ filePath, content, overwrite = false }) => {
-        const execute = ProjectFiles.writeFile(filePath, content, overwrite).pipe(Effect.provide(ProjectFiles.Default));
+        const execute = ProjectFiles.writeFile(filePath, content, overwrite).pipe(
+            Effect.catchAll((error) => Effect.succeed(`Error writing file: ${error.message}`)),
+            Effect.provide(ProjectFiles.Default),
+        );
 
         return await Effect.runPromise(execute);
     },

@@ -28,7 +28,10 @@ export const webFetchTool = tool({
             Effect.gen(function* () {
                 const web = yield* Web;
                 return yield* web.fetch(url, { format, timeout: timeout ? timeout * 1000 : undefined });
-            }).pipe(Effect.provide(Web.Default)),
+            }).pipe(
+                Effect.catchAll((error) => Effect.succeed(`Error fetching content: ${error.message}`)),
+                Effect.provide(Web.Default),
+            ),
         );
         return result;
     },

@@ -139,12 +139,10 @@ export class ProjectFiles extends Effect.Service<ProjectFiles>()("services/Proje
                 if (!overwrite) {
                     const exists = yield* fs.exists(targetPath);
                     if (exists) {
-                        return yield* Effect.fail(
-                            new FileWriteError({
-                                cause: "File already exists",
-                                message: `File ${filePath} already exists and overwrite is disabled`,
-                            }),
-                        );
+                        return yield* new FileWriteError({
+                            cause: "File already exists",
+                            message: `File ${filePath} already exists and overwrite is disabled`,
+                        });
                     }
                 }
 

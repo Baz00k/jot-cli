@@ -102,7 +102,10 @@ export const editFileTool = tool({
             yield* projectFiles.writeFile(filePath, newContent, true);
 
             return `Successfully edited ${filePath}`;
-        }).pipe(Effect.provide(ProjectFiles.Default));
+        }).pipe(
+            Effect.catchAll((error) => Effect.succeed(`Error editing file: ${error.message}`)),
+            Effect.provide(ProjectFiles.Default),
+        );
 
         return await Effect.runPromise(program);
     },
