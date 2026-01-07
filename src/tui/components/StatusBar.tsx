@@ -18,7 +18,7 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
             // Reset window title before destroying renderer
             renderer.setTerminalTitle("");
             renderer.destroy();
-            process.kill(process.pid, "SIGINT");
+            process.exit(0);
         }
     });
 
