@@ -50,8 +50,64 @@ export const copyToClipboard = (text: string) =>
         }
     });
 
+export const readFromClipboard = () =>
+    Effect.gen(function* () {
+        const platform = process.platform;
+        let command: string[];
+
+        const isWsl = platform === "linux" && (!!process.env.WSL_DISTRO_NAME || !!process.env.WSL_INTEROP);
+
+        if (platform === "darwin") {
+            command = ["pbpaste"];
+        } else if (platform === "win32" || isWsl) {
+            command = ["powershell.exe", "-noprofile", "-command", "Get-Clipboard"];
+        } else if (platform === "linux") {
+            if (process.env.WAYLAND_DISPLAY) {
+                command = ["wl-paste"];
+            } else {
+                command = ["xclip", "-selection", "clipboard", "-o"];
+            }
+        } else {
+            return yield* new ClipboardError({ message: `Unsupported platform: ${platform}` });
+        }
+
+        const proc = yield* Effect.try({
+            try: () =>
+                Bun.spawn(command, {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                }),
+            catch: (error) => new ClipboardError({ message: "Failed to spawn clipboard command", cause: error }),
+        });
+
+        const exitCode = yield* Effect.tryPromise({
+            try: () => proc.exited,
+            catch: (error) =>
+                new ClipboardError({ message: "Failed to wait for clipboard process exit", cause: error }),
+        });
+
+        if (exitCode !== 0) {
+            const stderr = yield* Effect.tryPromise({
+                try: () => new Response(proc.stderr).text(),
+                catch: (error) => new ClipboardError({ message: "Failed to read stderr", cause: error }),
+            });
+
+            return yield* new ClipboardError({
+                message: `Clipboard command failed with code ${exitCode}: ${stderr}`,
+            });
+        }
+
+        const text = yield* Effect.tryPromise({
+            try: () => new Response(proc.stdout).text(),
+            catch: (error) => new ClipboardError({ message: "Failed to read stdout", cause: error }),
+        });
+
+        return text.replace(/\r\n/g, "\n");
+    });
+
 export class Clipboard extends Effect.Service<Clipboard>()("services/clipboard", {
     effect: Effect.succeed({
         copy: copyToClipboard,
+        paste: readFromClipboard,
     }),
 }) {}
