@@ -1,12 +1,16 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { Effect, Runtime } from "effect";
-import type { Config } from "@/services/config";
+import { BunContext } from "@effect/platform-bun";
+import { Effect, Layer } from "effect";
+import { Config } from "@/services/config";
+import { AppLogger } from "@/services/logger";
 import { getValidToken } from "./auth";
 import { generateRequest, streamRequest } from "./client";
 import { AntigravityError } from "./errors";
 
+const AntigravityRuntime = Layer.mergeAll(Config.Default, AppLogger).pipe(Layer.provideMerge(BunContext.layer));
+
 export const createAntigravity =
-    (config: Config, runtime: Runtime.Runtime<never>) =>
+    () =>
     (modelId: string, _settings?: unknown): LanguageModelV3 => {
         return {
             specificationVersion: "v3",
@@ -15,11 +19,11 @@ export const createAntigravity =
             supportedUrls: Promise.resolve({}),
 
             async doGenerate(options) {
-                return Runtime.runPromise(runtime)(
+                return Effect.runPromise(
                     Effect.gen(function* () {
-                        const token = yield* getValidToken(config);
-                        const userConfig = yield* config.get;
-                        const projectId = userConfig.googleAntigravity?.projectId;
+                        const token = yield* getValidToken;
+                        const config = yield* Config.get;
+                        const projectId = config.googleAntigravity?.projectId;
 
                         if (!projectId) {
                             return yield* new AntigravityError({
@@ -28,16 +32,16 @@ export const createAntigravity =
                         }
 
                         return yield* generateRequest(modelId, token, projectId, options);
-                    }),
+                    }).pipe(Effect.provide(AntigravityRuntime)),
                 );
             },
 
             async doStream(options) {
-                return Runtime.runPromise(runtime)(
+                return Effect.runPromise(
                     Effect.gen(function* () {
-                        const token = yield* getValidToken(config);
-                        const userConfig = yield* config.get;
-                        const projectId = userConfig.googleAntigravity?.projectId;
+                        const token = yield* getValidToken;
+                        const config = yield* Config.get;
+                        const projectId = config.googleAntigravity?.projectId;
 
                         if (!projectId) {
                             return yield* new AntigravityError({
@@ -46,7 +50,7 @@ export const createAntigravity =
                         }
 
                         return yield* streamRequest(modelId, token, projectId, options);
-                    }),
+                    }).pipe(Effect.provide(AntigravityRuntime)),
                 );
             },
         };

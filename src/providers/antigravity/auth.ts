@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import type { Config } from "@/services/config";
+import { Config } from "@/services/config";
 import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "./constants";
 import { AntigravityAuthError } from "./errors";
 import { TokenResponseSchema } from "./schemas";
@@ -33,38 +33,38 @@ export const refreshTokenRequest = (refreshToken: string) =>
         });
     });
 
-export const getValidToken = (config: Config) =>
-    Effect.gen(function* () {
-        const userConfig = yield* config.get;
-        const auth = userConfig.googleAntigravity;
+export const getValidToken = Effect.gen(function* () {
+    const config = yield* Config;
+    const userConfig = yield* Config.get;
+    const auth = userConfig.googleAntigravity;
 
-        if (!auth?.accessToken) {
-            return yield* new AntigravityAuthError({ message: "Not authenticated. Run 'jot auth' first." });
-        }
+    if (!auth?.accessToken) {
+        return yield* new AntigravityAuthError({ message: "Not authenticated. Run 'jot auth' first." });
+    }
 
-        if (auth.expiresAt && Date.now() < auth.expiresAt - 60000) {
-            return auth.accessToken;
-        }
+    if (auth.expiresAt && Date.now() < auth.expiresAt - 60000) {
+        return auth.accessToken;
+    }
 
-        if (!auth.refreshToken) {
-            return yield* new AntigravityAuthError({
-                message: "Token expired and no refresh token available. Run 'jot auth' again.",
-            });
-        }
-
-        yield* Effect.logInfo("[Antigravity] Token expired, refreshing...");
-        const tokens = yield* refreshTokenRequest(auth.refreshToken);
-
-        yield* config.update({
-            googleAntigravity: {
-                ...auth,
-                accessToken: tokens.access_token,
-                refreshToken: tokens.refresh_token || auth.refreshToken,
-                expiresAt: Date.now() + tokens.expires_in * 1000,
-            },
+    if (!auth.refreshToken) {
+        return yield* new AntigravityAuthError({
+            message: "Token expired and no refresh token available. Run 'jot auth' again.",
         });
+    }
 
-        yield* Effect.logDebug("[Antigravity] Token refreshed successfully");
+    yield* Effect.logInfo("[Antigravity] Token expired, refreshing...");
+    const tokens = yield* refreshTokenRequest(auth.refreshToken);
 
-        return tokens.access_token;
+    yield* config.update({
+        googleAntigravity: {
+            ...auth,
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token || auth.refreshToken,
+            expiresAt: Date.now() + tokens.expires_in * 1000,
+        },
     });
+
+    yield* Effect.logDebug("[Antigravity] Token refreshed successfully");
+
+    return tokens.access_token;
+});

@@ -72,9 +72,8 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
     effect: Effect.gen(function* () {
         const config = yield* Config;
         const apiKey = (yield* config.get).openRouterApiKey;
-        const openRouter = createOpenRouter({ apiKey });
-        const runtime = yield* Effect.runtime();
-        const antigravity = createAntigravity(config, runtime);
+        const openRouter = createOpenRouter({ apiKey, compatibility: "strict" });
+        const antigravity = createAntigravity();
 
         return {
             createModel: (modelConfig: ModelConfig): Effect.Effect<LanguageModel, AIGenerationError> =>
