@@ -76,11 +76,11 @@ export class Config extends Effect.Service<Config>()("services/config", {
 
                     yield* fs
                         .makeDirectory(configDir, { recursive: true })
-                        .pipe(Effect.catchAll((error) => Effect.fail(new ConfigWriteError({ cause: error }))));
+                        .pipe(Effect.mapError((error) => new ConfigWriteError({ cause: error })));
 
                     yield* fs
                         .writeFileString(configPath, JSON.stringify(newConfig, null, 2))
-                        .pipe(Effect.catchAll((error) => Effect.fail(new ConfigWriteError({ cause: error }))));
+                        .pipe(Effect.mapError((error) => new ConfigWriteError({ cause: error })));
                 }),
             location: configPath,
         };
