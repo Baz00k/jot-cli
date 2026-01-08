@@ -1,8 +1,3 @@
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
-import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
-import { Effect } from "effect";
-import { StrictMode, useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
@@ -11,6 +6,11 @@ import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
 import { RendererProvider } from "@/tui/context/RendererContext";
+import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
+import { createCliRenderer } from "@opentui/core";
+import { createRoot, useKeyboard } from "@opentui/react";
+import { Effect } from "effect";
+import { StrictMode, useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
 
@@ -26,7 +26,7 @@ function AgentWorkflow() {
 
         if (key.name === "f2") {
             dialog.prompt({
-                content: (ctx) => <SettingsModal onClose={ctx.dismiss} dialogId={ctx.dialogId} />,
+                content: (ctx) => <SettingsModal {...ctx} />,
                 size: "large",
             });
             return;
@@ -91,7 +91,9 @@ function App() {
                 <ConfigProvider>
                     <DialogProvider size="large">
                         <AgentProvider>
-                            <AgentWorkflow />
+                            <StrictMode>
+                                <AgentWorkflow />
+                            </StrictMode>
                         </AgentProvider>
                     </DialogProvider>
                 </ConfigProvider>
@@ -113,11 +115,9 @@ export async function startTUI() {
     });
 
     createRoot(renderer).render(
-        <StrictMode>
-            <RendererProvider value={renderer}>
-                <App />
-            </RendererProvider>
-        </StrictMode>,
+        <RendererProvider value={renderer}>
+            <App />
+        </RendererProvider>,
     );
 
     renderer.setTerminalTitle("Jot CLI");

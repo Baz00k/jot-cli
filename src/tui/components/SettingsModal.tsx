@@ -1,9 +1,9 @@
-import { type DialogId, useDialogKeyboard } from "@opentui-ui/dialog/react";
-import { useEffect, useState } from "react";
 import { useConfigContext } from "@/tui/context/ConfigContext";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
+import { useDialogKeyboard, type PromptContext } from "@opentui-ui/dialog/react";
+import { useEffect, useState } from "react";
 
-export const SettingsModal = ({ onClose, dialogId }: { onClose: () => void; dialogId: DialogId }) => {
+export const SettingsModal = ({ dialogId, dismiss }: PromptContext<void>) => {
     const { config, updateConfig } = useConfigContext();
     const [focusedField, setFocusedField] = useState<"writer" | "reviewer">("writer");
     const [status, setStatus] = useState<"idle" | "saving">("idle");
@@ -24,11 +24,6 @@ export const SettingsModal = ({ onClose, dialogId }: { onClose: () => void; dial
     useDialogKeyboard((key) => {
         if (status === "saving") return;
 
-        if (key.name === "escape") {
-            onClose();
-            return;
-        }
-
         if (key.name === "tab" || key.name === "down" || key.name === "up") {
             setFocusedField((prev) => (prev === "writer" ? "reviewer" : "writer"));
             return;
@@ -42,7 +37,7 @@ export const SettingsModal = ({ onClose, dialogId }: { onClose: () => void; dial
             })
                 .then(() => {
                     setStatus("idle");
-                    onClose();
+                    dismiss();
                 })
                 .catch(() => {
                     setStatus("idle");
