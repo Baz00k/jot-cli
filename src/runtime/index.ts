@@ -24,7 +24,16 @@ export const UniversalLayer = Layer.mergeAll(
     Clipboard.Default,
 ).pipe(Layer.provideMerge(BunContext.layer));
 
-export type UniversalRuntime = ManagedRuntime.ManagedRuntime<
-    Agent | Config | LLM | ProjectFiles | Prompts | Session | UserDirs | Web | Clipboard | BunContext.BunContext,
-    unknown
->;
+export type UniversalServices =
+    | Agent
+    | Config
+    | LLM
+    | ProjectFiles
+    | Prompts
+    | Session
+    | UserDirs
+    | Web
+    | Clipboard
+    | BunContext.BunContext;
+
+export type UniversalRuntime = ManagedRuntime.ManagedRuntime<UniversalServices, unknown>;
