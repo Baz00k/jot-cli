@@ -7,7 +7,13 @@ import type {
 import { Effect, Match, Schema } from "effect";
 import { ANTIGRAVITY_HEADERS } from "./constants";
 import { AntigravityAuthError, AntigravityError, AntigravityRateLimitError } from "./errors";
-import { injectJsonInstructionIntoMessages, mapFinishReason, mapPromptToContents, mapTools } from "./mappers";
+import {
+    injectJsonInstructionIntoMessages,
+    mapFinishReason,
+    mapPromptToContents,
+    mapTools,
+    stripMarkdownCodeBlock,
+} from "./mappers";
 import { GenerateResponseSchema } from "./schemas";
 import type { AntigravityErrorResponse, ApiRequest } from "./types";
 
@@ -117,9 +123,12 @@ export const generateRequest = (
                 );
 
                 if (part?.text) {
+                    const text =
+                        options.responseFormat?.type === "json" ? stripMarkdownCodeBlock(part.text) : part.text;
+
                     content.push({
                         type: "text",
-                        text: part.text,
+                        text,
                         providerMetadata: thoughtSignature ? { "google-antigravity": { thoughtSignature } } : undefined,
                     });
                 }
@@ -232,10 +241,16 @@ export const streamRequest = (modelId: string, token: string, projectId: string,
                                                     Match.orElse(() => undefined),
                                                 );
 
+                                                let delta = part.text;
+                                                if (options.responseFormat?.type === "json") {
+                                                    delta = delta.replace(/^```(?:json|JSON)?\s*\n?/, "");
+                                                    delta = delta.replace(/\n?```\s*$/, "");
+                                                }
+
                                                 controller.enqueue({
                                                     type: "text-delta",
                                                     id: crypto.randomUUID(),
-                                                    delta: part.text,
+                                                    delta,
                                                     providerMetadata: thoughtSignature
                                                         ? { "google-antigravity": { thoughtSignature } }
                                                         : undefined,

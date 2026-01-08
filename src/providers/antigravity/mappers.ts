@@ -68,6 +68,24 @@ export function injectJsonInstructionIntoMessages({
     return [systemMessage, ...(messages[0]?.role === "system" ? messages.slice(1) : messages)];
 }
 
+/**
+ * Strips markdown code block wrappers from text.
+ * Handles ```json, ```, and variations with language tags.
+ */
+export const stripMarkdownCodeBlock = (text: string): string => {
+    const trimmed = text.trim();
+
+    // Match ```json or ``` at start, and ``` at end
+    const codeBlockPattern = /^```(?:json|JSON)?\s*\n?([\s\S]*?)\n?```$/;
+    const match = trimmed.match(codeBlockPattern);
+
+    if (match?.[1]) {
+        return match[1].trim();
+    }
+
+    return trimmed;
+};
+
 export const mapTools = (
     tools: LanguageModelV3CallOptions["tools"],
 ): { functionDeclarations: FunctionDeclaration[] }[] | undefined => {
