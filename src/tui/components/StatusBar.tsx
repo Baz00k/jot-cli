@@ -1,6 +1,6 @@
+import { useKeyboard } from "@opentui/react";
 import { useConfigContext } from "@/tui/context/ConfigContext";
 import { useRenderer } from "@/tui/context/RendererContext";
-import { useKeyboard } from "@opentui/react";
 
 export interface StatusBarProps {
     isRunning: boolean;
