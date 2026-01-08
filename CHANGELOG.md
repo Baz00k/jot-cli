@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/Baz00k/jot-cli/compare/v0.4.1...v0.5.0) (2026-01-08)
+
+
+### Features
+
+* add TUI ([#27](https://github.com/Baz00k/jot-cli/issues/27)) ([e1aa8d6](https://github.com/Baz00k/jot-cli/commit/e1aa8d6bd761db57166b85d97b75c3cc38e67aaa))
+
+
+### Bug Fixes
+
+* exit with exit code 0 ([5470054](https://github.com/Baz00k/jot-cli/commit/5470054ec1332b41e77ed7a10326f9208cd9b2e7))
+* failed response parsing by stripping markdown wrapper ([1437290](https://github.com/Baz00k/jot-cli/commit/1437290f10b5f886cdd81319359a12d6c47983cf))
+* improve tools by providing meaningful output messages to ai model ([17db0b6](https://github.com/Baz00k/jot-cli/commit/17db0b6f873e4f7cad9f719e718625b7d341e39b))
+* min height for status bar ([7c31417](https://github.com/Baz00k/jot-cli/commit/7c314179565765fb465eebe2c3a80df2e7529338))
+
 ## [0.4.1](https://github.com/Baz00k/jot-cli/compare/v0.4.0...v0.4.1) (2026-01-04)
 
 
