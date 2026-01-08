@@ -100,8 +100,8 @@ export const generateRequest = (
                 const response = await fetch(`${BASE_URL}:generateContent`, {
                     method: "POST",
                     headers: {
-                        "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
                         ...ANTIGRAVITY_HEADERS,
                     },
                     body: JSON.stringify(payload),
@@ -193,8 +193,8 @@ export const streamRequest = (modelId: string, token: string, projectId: string,
                 const response = await fetch(`${BASE_URL}:streamGenerateContent?alt=sse`, {
                     method: "POST",
                     headers: {
-                        "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
                         ...ANTIGRAVITY_HEADERS,
                     },
                     body: JSON.stringify(payload),
