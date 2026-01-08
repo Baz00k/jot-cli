@@ -21,10 +21,9 @@ const cli = Command.run(command, {
 });
 
 const program = Effect.gen(function* () {
-    // Check if no subcommand was provided
-    const args = process.argv.slice(2);
+    const args = process.argv;
 
-    if (args.length === 0) {
+    if (args.length <= 2) {
         // Launch TUI when no arguments provided
         yield* Effect.tryPromise({
             try: () => startTUI(),
@@ -32,7 +31,7 @@ const program = Effect.gen(function* () {
         });
     } else {
         // Run normal CLI with arguments
-        yield* Effect.suspend(() => cli(process.argv));
+        yield* cli(args);
     }
 }).pipe(Effect.tapErrorCause((cause) => Effect.logError("Application error", cause)));
 
