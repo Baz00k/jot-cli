@@ -25,6 +25,6 @@ export const UniversalLayer = Layer.mergeAll(
 ).pipe(Layer.provideMerge(BunContext.layer));
 
 export type UniversalRuntime = ManagedRuntime.ManagedRuntime<
-    Agent | Config | LLM | ProjectFiles | Prompts | Session | UserDirs | Web | BunContext.BunContext,
+    Agent | Config | LLM | ProjectFiles | Prompts | Session | UserDirs | Web | Clipboard | BunContext.BunContext,
     unknown
 >;
