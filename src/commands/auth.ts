@@ -163,6 +163,10 @@ const fetchProjectID = (accessToken: string) =>
             });
 
         return yield* Effect.firstSuccessOf(endpoints.map(fetchFromEndpoint)).pipe(
+            Effect.tapBoth({
+                onSuccess: (id) => Effect.logInfo(`Successfully fetched project ID: ${id}`),
+                onFailure: (error) => Effect.logError(`Failed to fetch project ID: ${error.message}`),
+            }),
             Effect.catchAll(() => Effect.succeed(ANTIGRAVITY_DEFAULT_PROJECT_ID)),
         );
     });
