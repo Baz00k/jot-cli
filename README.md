@@ -70,7 +70,7 @@ Antigravity allows you to use SOTA Gemini and Claude models for free.
 To use this provider, you need to authenticate via OAuth2:
 
 ```bash
-jot auth
+jot antigravity auth
 ```
 
 This command will open a browser window for you to sign in with your Google account.
@@ -107,6 +107,8 @@ When using the Antigravity provider, the model ID should include the `antigravit
 Antigravity provides limited quota for each model.
 If the quota is exceeded, the model will return an error.
 You can always use other google account or wait until the quota is reset.
+
+You can check the quota usage by running `jot antigravity quota`.
 
 ## Features
 
