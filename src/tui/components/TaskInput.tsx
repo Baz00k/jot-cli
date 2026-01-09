@@ -1,4 +1,7 @@
 import { useKeyboard } from "@opentui/react";
+import { Effect } from "effect";
+import { readFromClipboard } from "@/services/clipboard";
+import { useEffectRuntime } from "@/tui/context/EffectContext";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 
 export interface TaskInputProps {
@@ -8,6 +11,7 @@ export interface TaskInputProps {
 }
 
 export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) => {
+    const runtime = useEffectRuntime();
     const buffer = useTextBuffer("");
 
     useKeyboard((key) => {
@@ -22,6 +26,15 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                     buffer.clear();
                 }
             }
+        } else if ((key.ctrl || key.meta) && key.name === "v") {
+            runtime
+                .runPromise(
+                    readFromClipboard().pipe(
+                        Effect.tapError(Effect.logError),
+                        Effect.catchAll(() => Effect.succeed("")),
+                    ),
+                )
+                .then((text) => buffer.insert(text));
         } else if (key.name === "backspace") {
             buffer.deleteBack();
         } else if (key.name === "left") {
