@@ -1,3 +1,8 @@
+import { createCliRenderer } from "@opentui/core";
+import { createRoot, useKeyboard } from "@opentui/react";
+import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
+import { Effect } from "effect";
+import { StrictMode, useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
@@ -6,11 +11,6 @@ import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
 import { RendererProvider } from "@/tui/context/RendererContext";
-import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
-import { Effect } from "effect";
-import { StrictMode, useState } from "react";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
 
@@ -58,11 +58,10 @@ function AgentWorkflow() {
     };
 
     const isAgentRunning =
-        isDialogOpen ||
-        (state.phase !== "idle" &&
-            state.phase !== "completed" &&
-            state.phase !== "failed" &&
-            state.phase !== "cancelled");
+        state.phase !== "idle" &&
+        state.phase !== "completed" &&
+        state.phase !== "failed" &&
+        state.phase !== "cancelled";
 
     return (
         <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
@@ -78,7 +77,7 @@ function AgentWorkflow() {
                 focused={!isDialogOpen && activeFocus === "input"}
             />
 
-            <StatusBar isRunning={state.phase !== "idle" && state.phase !== "completed"} disabled={isDialogOpen} />
+            <StatusBar isRunning={isAgentRunning} disabled={isDialogOpen} />
         </box>
     );
 }
