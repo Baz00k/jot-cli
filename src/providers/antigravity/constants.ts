@@ -9,9 +9,9 @@ export const ANTIGRAVITY_SCOPES = [
     "https://www.googleapis.com/auth/experimentsandconfigs",
 ] as const;
 
+export const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_ENDPOINT_DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com";
 export const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
-export const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
 
 export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
     ANTIGRAVITY_ENDPOINT_DAILY,
@@ -26,6 +26,7 @@ export const ANTIGRAVITY_LOAD_ENDPOINTS = [
 ] as const;
 
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
+export const ANTIGRAVITY_DEFAULT_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY;
 
 export const ANTIGRAVITY_HEADERS = {
     "User-Agent": "antigravity/1.13.3 windows/amd64",

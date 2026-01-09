@@ -43,14 +43,15 @@ export interface ApiRequest {
     model: string;
     request: {
         contents: ApiContent[];
+        systemInstruction?: { parts: { text: string }[] };
         tools?: { functionDeclarations: FunctionDeclaration[] }[];
         generationConfig: {
             temperature?: number;
             topP?: number;
             maxOutputTokens?: number;
         };
-        systemInstruction?: { parts: { text: string }[] };
     };
+    requestType: "agent";
     userAgent: string;
     requestId: string;
 }

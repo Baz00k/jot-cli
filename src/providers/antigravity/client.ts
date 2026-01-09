@@ -5,7 +5,7 @@ import type {
     LanguageModelV3StreamPart,
 } from "@ai-sdk/provider";
 import { Effect, Match, Schema } from "effect";
-import { ANTIGRAVITY_HEADERS } from "./constants";
+import { ANTIGRAVITY_DEFAULT_ENDPOINT, ANTIGRAVITY_HEADERS } from "./constants";
 import { AntigravityAuthError, AntigravityError, AntigravityRateLimitError } from "./errors";
 import {
     injectJsonInstructionIntoMessages,
@@ -17,7 +17,7 @@ import {
 import { GenerateResponseSchema } from "./schemas";
 import type { AntigravityErrorResponse, ApiRequest } from "./types";
 
-const BASE_URL = "https://cloudcode-pa.googleapis.com/v1internal";
+const BASE_URL = `${ANTIGRAVITY_DEFAULT_ENDPOINT}/v1internal`;
 
 const handleAntigravityError = async (response: Response): Promise<never> => {
     let errorDetails: AntigravityErrorResponse | undefined;
@@ -68,16 +68,17 @@ const buildPayload = (modelId: string, projectId: string, options: LanguageModel
         model: modelId.replace(/^(google\/)?antigravity-/, ""),
         request: {
             contents,
+            systemInstruction,
             tools: mapTools(options.tools),
             generationConfig: {
                 temperature: options.temperature,
                 topP: options.topP,
                 maxOutputTokens: options.maxOutputTokens,
             },
-            systemInstruction,
         },
+        requestType: "agent",
         userAgent: "antigravity",
-        requestId: crypto.randomUUID(),
+        requestId: `agent-${crypto.randomUUID()}`,
     };
 };
 
@@ -195,6 +196,7 @@ export const streamRequest = (modelId: string, token: string, projectId: string,
                     headers: {
                         Authorization: `Bearer ${token}`,
                         "Content-Type": "application/json",
+                        Accept: "text/event-stream",
                         ...ANTIGRAVITY_HEADERS,
                     },
                     body: JSON.stringify(payload),
