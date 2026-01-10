@@ -1,7 +1,7 @@
+import { type PromptContext, useDialogKeyboard } from "@opentui-ui/dialog/react";
+import { useEffect, useState } from "react";
 import { useConfigContext } from "@/tui/context/ConfigContext";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
-import { useDialogKeyboard, type PromptContext } from "@opentui-ui/dialog/react";
-import { useEffect, useState } from "react";
 
 export const SettingsModal = ({ dialogId, dismiss }: PromptContext<void>) => {
     const { config, updateConfig } = useConfigContext();
