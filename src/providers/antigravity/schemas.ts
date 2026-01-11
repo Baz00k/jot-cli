@@ -41,3 +41,18 @@ export const GenerateResponseSchema = Schema.Struct({
         }),
     ),
 });
+
+export const QuotaInfoSchema = Schema.Struct({
+    remainingFraction: Schema.optional(Schema.Number),
+    resetTime: Schema.optional(Schema.String),
+});
+
+export const ModelQuotaSchema = Schema.Struct({
+    displayName: Schema.optional(Schema.String),
+    quotaInfo: Schema.optional(QuotaInfoSchema),
+    recommended: Schema.optional(Schema.Boolean),
+});
+
+export const FetchAvailableModelsResponseSchema = Schema.Struct({
+    models: Schema.Record({ key: Schema.String, value: ModelQuotaSchema }),
+});

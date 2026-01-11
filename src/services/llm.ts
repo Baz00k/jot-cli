@@ -70,8 +70,7 @@ const withRetry = <A, E extends AIGenerationError>(effect: Effect.Effect<A, E>):
 
 export class LLM extends Effect.Service<LLM>()("services/llm", {
     effect: Effect.gen(function* () {
-        const config = yield* Config;
-        const apiKey = (yield* config.get).openRouterApiKey;
+        const apiKey = yield* Config.get.pipe(Effect.map((config) => config.openRouterApiKey));
         const openRouter = createOpenRouter({ apiKey, compatibility: "strict" });
         const antigravity = createAntigravity();
 

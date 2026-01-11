@@ -1,14 +1,14 @@
 import * as crypto from "node:crypto";
 import { intro, log, note, outro, spinner } from "@clack/prompts";
 import { Command } from "@effect/cli";
-import { Effect } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
+import { Effect, Schema } from "effect";
 import {
     ANTIGRAVITY_CLIENT_ID,
     ANTIGRAVITY_CLIENT_SECRET,
     ANTIGRAVITY_DEFAULT_PROJECT_ID,
     ANTIGRAVITY_ENDPOINT_FALLBACKS,
     ANTIGRAVITY_HEADERS,
-    ANTIGRAVITY_LOAD_ENDPOINTS,
     ANTIGRAVITY_REDIRECT_URI,
     ANTIGRAVITY_SCOPES,
 } from "@/providers/antigravity/constants";
@@ -91,83 +91,115 @@ const waitForCallback = () =>
         );
     });
 
+const TokenResponseSchema = Schema.Struct({
+    access_token: Schema.String,
+    refresh_token: Schema.optional(Schema.String),
+    expires_in: Schema.Number,
+});
+
 const exchangeCodeForToken = (code: string, verifier: string) =>
-    Effect.tryPromise({
-        try: async () => {
-            const response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: new URLSearchParams({
-                    client_id: ANTIGRAVITY_CLIENT_ID,
-                    client_secret: ANTIGRAVITY_CLIENT_SECRET,
-                    code,
-                    grant_type: "authorization_code",
-                    redirect_uri: ANTIGRAVITY_REDIRECT_URI,
-                    code_verifier: verifier,
-                }),
-            });
+    Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
 
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Token exchange failed: ${text}`);
-            }
+        const request = HttpClientRequest.post("https://oauth2.googleapis.com/token").pipe(
+            HttpClientRequest.setHeader("Content-Type", "application/x-www-form-urlencoded"),
+            HttpClientRequest.bodyUrlParams({
+                client_id: ANTIGRAVITY_CLIENT_ID,
+                client_secret: ANTIGRAVITY_CLIENT_SECRET,
+                code,
+                grant_type: "authorization_code",
+                redirect_uri: ANTIGRAVITY_REDIRECT_URI,
+                code_verifier: verifier,
+            }),
+        );
 
-            return (await response.json()) as {
-                access_token: string;
-                refresh_token?: string;
-                expires_in: number;
-            };
-        },
-        catch: (error) => new Error(String(error)),
+        return yield* client.execute(request).pipe(
+            Effect.flatMap(HttpClientResponse.schemaBodyJson(TokenResponseSchema)),
+            Effect.mapError((e) => new Error(`Token exchange failed: ${String(e)}`)),
+        );
+    });
+
+const UserInfoResponseSchema = Schema.Struct({
+    id: Schema.optional(Schema.String),
+    email: Schema.optional(Schema.String),
+    verified_email: Schema.optional(Schema.Boolean),
+    name: Schema.optional(Schema.String),
+    given_name: Schema.optional(Schema.String),
+    family_name: Schema.optional(Schema.String),
+    picture: Schema.optional(Schema.String),
+});
+
+const fetchUserInfo = (accessToken: string) =>
+    Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
+
+        const request = HttpClientRequest.get("https://www.googleapis.com/oauth2/v1/userinfo?alt=json").pipe(
+            HttpClientRequest.setHeader("Authorization", `Bearer ${accessToken}`),
+        );
+
+        return yield* client.execute(request).pipe(
+            Effect.flatMap(HttpClientResponse.schemaBodyJson(UserInfoResponseSchema)),
+            Effect.tap((info) =>
+                Effect.logInfo(info.email ? `Authenticated as: ${info.email}` : "User info retrieved successfully"),
+            ),
+            Effect.catchAll((e) =>
+                Effect.logWarning(`Failed to fetch user info: ${String(e)}`).pipe(Effect.map(() => undefined)),
+            ),
+        );
     });
 
 const fetchProjectID = (accessToken: string) =>
     Effect.gen(function* () {
-        const endpoints = [...new Set([...ANTIGRAVITY_LOAD_ENDPOINTS, ...ANTIGRAVITY_ENDPOINT_FALLBACKS])];
+        const client = yield* HttpClient.HttpClient;
 
-        const fetchFromEndpoint = (endpoint: string) =>
-            Effect.tryPromise({
-                try: async () => {
-                    const response = await fetch(`${endpoint}/v1internal:loadCodeAssist`, {
-                        method: "POST",
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`,
-                            "Content-Type": "application/json",
-                            ...ANTIGRAVITY_HEADERS,
-                        },
-                        body: JSON.stringify({
-                            metadata: {
-                                ideType: "IDE_UNSPECIFIED",
-                                platform: "PLATFORM_UNSPECIFIED",
-                                pluginType: "GEMINI",
-                            },
-                        }),
-                    });
+        const ProjectResponseSchema = Schema.Struct({
+            cloudaicompanionProject: Schema.Union(
+                Schema.String,
+                Schema.Struct({ id: Schema.optional(Schema.String) }),
+            ).pipe(Schema.optional),
+        });
 
-                    if (!response.ok) {
-                        throw new Error(`Failed to load project ID from ${endpoint}: ${response.status}`);
-                    }
+        const fetchFromEndpoint = (endpoint: string) => {
+            const request = HttpClientRequest.post(`${endpoint}/v1internal:loadCodeAssist`).pipe(
+                HttpClientRequest.setHeader("Authorization", `Bearer ${accessToken}`),
+                HttpClientRequest.setHeader("Content-Type", "application/json"),
+                HttpClientRequest.setHeaders(ANTIGRAVITY_HEADERS),
+                HttpClientRequest.bodyJson({
+                    metadata: {
+                        ideType: "IDE_UNSPECIFIED",
+                        platform: "PLATFORM_UNSPECIFIED",
+                        pluginType: "GEMINI",
+                    },
+                }),
+            );
 
-                    const data = (await response.json()) as {
-                        cloudaicompanionProject?: string | { id?: string };
-                    };
-                    if (typeof data.cloudaicompanionProject === "string" && data.cloudaicompanionProject) {
-                        return data.cloudaicompanionProject;
-                    }
-                    if (typeof data.cloudaicompanionProject === "object" && data.cloudaicompanionProject?.id) {
-                        return data.cloudaicompanionProject.id;
-                    }
-                    throw new Error(`Invalid response from ${endpoint}`);
-                },
-                catch: (error) => new Error(`[${endpoint}] ${String(error)}`),
-            });
+            return Effect.flatMap(request, (req) =>
+                client.execute(req).pipe(
+                    Effect.flatMap(HttpClientResponse.schemaBodyJson(ProjectResponseSchema)),
+                    Effect.flatMap((data) => {
+                        if (typeof data.cloudaicompanionProject === "string" && data.cloudaicompanionProject) {
+                            return Effect.succeed(data.cloudaicompanionProject);
+                        }
+                        if (typeof data.cloudaicompanionProject === "object" && data.cloudaicompanionProject?.id) {
+                            return Effect.succeed(data.cloudaicompanionProject.id);
+                        }
+                        return Effect.fail(new Error(`Invalid response from ${endpoint}`));
+                    }),
+                    Effect.mapError((e) => new Error(`[${endpoint}] ${String(e)}`)),
+                ),
+            );
+        };
+
+        // We need to check the endpoints in reverse order to get correct api key
+        const endpoints = ANTIGRAVITY_ENDPOINT_FALLBACKS.toReversed();
 
         return yield* Effect.firstSuccessOf(endpoints.map(fetchFromEndpoint)).pipe(
-            Effect.tapBoth({
-                onSuccess: (id) => Effect.logInfo(`Successfully fetched project ID: ${id}`),
-                onFailure: (error) => Effect.logError(`Failed to fetch project ID: ${error.message}`),
-            }),
-            Effect.catchAll(() => Effect.succeed(ANTIGRAVITY_DEFAULT_PROJECT_ID)),
+            Effect.tap((id) => Effect.logInfo(`Successfully fetched project ID: ${id}`)),
+            Effect.catchAll((e) =>
+                Effect.logWarning(`Failed to fetch project ID: ${String(e)}. Using default.`).pipe(
+                    Effect.map(() => ANTIGRAVITY_DEFAULT_PROJECT_ID),
+                ),
+            ),
         );
     });
 
@@ -212,6 +244,9 @@ export const authCommand = Command.make("auth", {}, () =>
 
         s.message("Exchanging code for token...");
         const tokens = yield* exchangeCodeForToken(code, verifier);
+
+        s.message("Fetching user info...");
+        yield* fetchUserInfo(tokens.access_token);
 
         s.message("Retrieving Project ID...");
         const projectId = yield* fetchProjectID(tokens.access_token);

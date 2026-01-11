@@ -3,323 +3,525 @@ import type {
     LanguageModelV3CallOptions,
     LanguageModelV3GenerateResult,
     LanguageModelV3StreamPart,
+    LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
-import { Effect, Match, Schema } from "effect";
-import { ANTIGRAVITY_DEFAULT_ENDPOINT, ANTIGRAVITY_HEADERS } from "./constants";
+import { HttpClient, HttpClientRequest } from "@effect/platform";
+import type { HttpBodyError } from "@effect/platform/HttpBody";
+import { Effect, Schema, Stream } from "effect";
+import { ANTIGRAVITY_DEFAULT_PROJECT_ID, ANTIGRAVITY_ENDPOINT_FALLBACKS, ANTIGRAVITY_HEADERS } from "./constants";
 import { AntigravityAuthError, AntigravityError, AntigravityRateLimitError } from "./errors";
-import {
-    injectJsonInstructionIntoMessages,
-    mapFinishReason,
-    mapPromptToContents,
-    mapTools,
-    stripMarkdownCodeBlock,
-} from "./mappers";
+import { mapApiPartsToContent, mapFinishReason, mapPromptToContents, mapTools, mapUsage } from "./mappers";
 import { GenerateResponseSchema } from "./schemas";
-import type { AntigravityErrorResponse, ApiRequest } from "./types";
+import type { AntigravityErrorResponse, AntigravityProviderSettings, ApiRequest, StreamChunk } from "./types";
 
-const BASE_URL = `${ANTIGRAVITY_DEFAULT_ENDPOINT}/v1internal`;
-
-const handleAntigravityError = async (response: Response): Promise<never> => {
-    let errorDetails: AntigravityErrorResponse | undefined;
-    try {
-        errorDetails = (await response.json()) as AntigravityErrorResponse;
-    } catch {
-        const text = await response.text();
-        throw new AntigravityError({
-            message: `Antigravity API Error: ${response.status} - ${text}`,
-            code: response.status,
-        });
-    }
-
-    const message = errorDetails?.error?.message || `Antigravity API Error: ${response.status}`;
-
-    if (response.status === 401 || response.status === 403) {
-        throw new AntigravityAuthError({ message, cause: errorDetails });
-    }
-
-    if (response.status === 429) {
-        const retryDelay = errorDetails?.error?.details?.[0]?.retryDelay;
-        const retryAfter = retryDelay ? Number.parseFloat(retryDelay.replace("s", "")) * 1000 : undefined;
-        throw new AntigravityRateLimitError({ message, retryAfter });
-    }
-
-    throw new AntigravityError({
-        message,
-        cause: errorDetails,
-        code: response.status,
-        status: errorDetails?.error?.status,
-    });
+/**
+ * Generates a random request ID in the format "agent-uuid"
+ */
+const generateRequestID = (): string => {
+    return `agent-${crypto.randomUUID()}`;
 };
 
-const buildPayload = (modelId: string, projectId: string, options: LanguageModelV3CallOptions): ApiRequest => {
-    let prompt = options.prompt;
+/**
+ * Generates a session ID in the format "-{uuid}:{model}:{project}:seed-{hex}"
+ */
+const generateSessionID = (model: string, projectId: string): string => {
+    const uuid = crypto.randomUUID();
+    const seed = crypto.randomBytes(8).toString("hex");
+    return `-${uuid}:${model}:${projectId}:seed-${seed}`;
+};
 
-    if (options.responseFormat?.type === "json" && options.responseFormat.schema) {
-        prompt = injectJsonInstructionIntoMessages({
-            messages: prompt,
-            schema: options.responseFormat.schema,
-        });
+/**
+ * Maps alias model names to internal model names
+ */
+const alias2ModelName = (modelName: string): string => {
+    switch (modelName) {
+        case "gemini-2.5-computer-use-preview-10-2025":
+            return "rev19-uic3-1p";
+        case "gemini-3-pro-image-preview":
+            return "gemini-3-pro-image";
+        case "gemini-3-pro-preview":
+            return "gemini-3-pro-high";
+        case "gemini-3-flash-preview":
+            return "gemini-3-flash";
+        case "gemini-claude-sonnet-4-5":
+            return "claude-sonnet-4-5";
+        case "gemini-claude-sonnet-4-5-thinking":
+            return "claude-sonnet-4-5-thinking";
+        case "gemini-claude-opus-4-5-thinking":
+            return "claude-opus-4-5-thinking";
+        default:
+            return modelName;
+    }
+};
+
+/**
+ * Clean model name by removing prefixes
+ */
+const cleanModelName = (modelId: string): string => {
+    return modelId.replace(/^google\//, "").replace(/^antigravity-/, "");
+};
+
+/**
+ * Resolve the thinkingConfig based on provider settings and call options
+ */
+const resolveThinkingConfig = (
+    settings?: AntigravityProviderSettings,
+    providerOptions?: Record<string, unknown>,
+): {
+    includeThoughts?: boolean;
+    thinkingLevel?: string;
+    thinkingBudget?: number;
+} => {
+    const thinkingConfig: {
+        includeThoughts?: boolean;
+        thinkingLevel?: string;
+        thinkingBudget?: number;
+    } = {};
+
+    // Call-specific overrides from providerOptions
+    const antigravityOptions = providerOptions?.["google-antigravity"] as
+        | { thinkingBudget?: number; includeThoughts?: boolean; thinkingLevel?: string }
+        | undefined;
+
+    // Provider-level settings
+    if (settings?.reasoning) {
+        if (settings.reasoning.enabled !== false) {
+            thinkingConfig.includeThoughts = true;
+        }
+        if (settings.reasoning.effort) {
+            thinkingConfig.thinkingLevel = settings.reasoning.effort;
+        }
     }
 
-    const { contents, systemInstruction } = mapPromptToContents(prompt);
+    // Legacy/fallback handling for direct providerOptions
+    if (thinkingConfig.includeThoughts === undefined) {
+        thinkingConfig.includeThoughts = Boolean(
+            antigravityOptions?.includeThoughts ?? providerOptions?.includeThoughts ?? true,
+        );
+    }
+    if (thinkingConfig.thinkingLevel === undefined) {
+        thinkingConfig.thinkingLevel = String(
+            antigravityOptions?.thinkingLevel ?? providerOptions?.thinkingLevel ?? "high",
+        );
+    }
 
-    return {
+    // Override with call options if budget is present
+    const thinkingBudget = antigravityOptions?.thinkingBudget ?? providerOptions?.thinkingBudget;
+    if (thinkingBudget) {
+        thinkingConfig.thinkingBudget = Number(thinkingBudget);
+        // If budget is set, clear thinkingLevel
+        delete thinkingConfig.thinkingLevel;
+    }
+
+    return thinkingConfig;
+};
+
+/**
+ * Build the request payload for the API
+ */
+const buildRequestPayload = (
+    modelId: string,
+    projectId: string,
+    options: LanguageModelV3CallOptions,
+    settings?: AntigravityProviderSettings,
+): ApiRequest => {
+    const cleanedModelId = cleanModelName(modelId);
+    const mappedModelName = alias2ModelName(cleanedModelId);
+    const { systemInstruction, contents } = mapPromptToContents(
+        options.prompt,
+        mappedModelName,
+        options.responseFormat,
+    );
+    const tools = mapTools(options.tools);
+    const thinkingConfig = resolveThinkingConfig(settings, options.providerOptions);
+
+    const request: ApiRequest = {
         project: projectId,
-        model: modelId.replace(/^(google\/)?antigravity-/, ""),
+        model: mappedModelName,
         request: {
-            contents,
             systemInstruction,
-            tools: mapTools(options.tools),
+            contents,
             generationConfig: {
                 temperature: options.temperature,
                 topP: options.topP,
                 maxOutputTokens: options.maxOutputTokens,
+                thinkingConfig,
             },
+            sessionId: generateSessionID(mappedModelName, projectId),
         },
         requestType: "agent",
         userAgent: "antigravity",
-        requestId: `agent-${crypto.randomUUID()}`,
+        requestId: generateRequestID(),
     };
+
+    if (tools) {
+        options.toolChoice;
+        request.request.tools = tools;
+        request.request.toolConfig = {
+            functionCallingConfig: {
+                mode: "AUTO",
+            },
+        };
+    }
+
+    return request;
 };
 
+/**
+ * Parse retry delay from error response
+ */
+const parseRetryDelay = (errorText: string): number | undefined => {
+    try {
+        const json = JSON.parse(errorText) as AntigravityErrorResponse;
+
+        // Look for google.rpc.RetryInfo
+        const details = json?.error?.details;
+        if (Array.isArray(details)) {
+            for (const detail of details) {
+                if (detail["@type"] === "type.googleapis.com/google.rpc.RetryInfo" && detail.retryDelay) {
+                    const delayStr = detail.retryDelay;
+                    if (typeof delayStr === "string" && delayStr.endsWith("s")) {
+                        const seconds = Number.parseFloat(delayStr.slice(0, -1));
+                        if (!Number.isNaN(seconds)) {
+                            return Math.ceil(seconds * 1000);
+                        }
+                    }
+                }
+            }
+        }
+
+        return undefined;
+    } catch {
+        return undefined;
+    }
+};
+
+/**
+ * Execute HTTP request with endpoint fallbacks
+ */
+const executeRequest = (token: string, payload: ApiRequest, stream: boolean) =>
+    Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
+
+        const headers: Record<string, string> = {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: stream ? "text/event-stream" : "application/json",
+            ...ANTIGRAVITY_HEADERS,
+        };
+
+        // Try each endpoint in order
+        let lastError: Error | undefined;
+
+        for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+            const url = `${endpoint}/v1internal:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`;
+
+            const request = yield* HttpClientRequest.post(url).pipe(
+                HttpClientRequest.setHeaders(headers),
+                HttpClientRequest.bodyJson(payload),
+            );
+
+            const result = yield* Effect.either(client.execute(request));
+
+            if (result._tag === "Left") {
+                lastError = result.left as Error;
+                yield* Effect.logDebug(`[Antigravity] Endpoint ${endpoint} failed, trying next...`);
+                continue;
+            }
+
+            const response = result.right;
+
+            // Handle error status codes
+            if (response.status === 401 || response.status === 403) {
+                const text = yield* response.text.pipe(
+                    Effect.catchAll(() => Effect.succeed("Unknown authentication error")),
+                );
+                return yield* new AntigravityAuthError({
+                    message: `Authentication failed: ${text}`,
+                });
+            }
+
+            if (response.status === 429) {
+                const text = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed("Rate limited")));
+                const retryAfter = parseRetryDelay(text);
+                return yield* new AntigravityRateLimitError({
+                    message: `Rate limit exceeded: ${text}`,
+                    retryAfter,
+                });
+            }
+
+            if (response.status >= 400) {
+                const text = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed("Unknown error")));
+                return yield* new AntigravityError({
+                    message: `API error (${response.status}): ${text}`,
+                    code: response.status,
+                });
+            }
+
+            return response;
+        }
+
+        return yield* new AntigravityError({
+            message: `All endpoints failed: ${lastError?.message ?? "Unknown error"}`,
+            cause: lastError,
+        });
+    });
+
+/**
+ * Generate a non-streaming response
+ */
 export const generateRequest = (
     modelId: string,
     token: string,
     projectId: string,
     options: LanguageModelV3CallOptions,
+    settings?: AntigravityProviderSettings,
 ): Effect.Effect<
     LanguageModelV3GenerateResult,
-    AntigravityError | AntigravityAuthError | AntigravityRateLimitError | Error
+    AntigravityError | AntigravityAuthError | AntigravityRateLimitError | HttpBodyError,
+    HttpClient.HttpClient
 > =>
     Effect.gen(function* () {
-        const payload = buildPayload(modelId, projectId, options);
+        const payload = buildRequestPayload(modelId, projectId ?? ANTIGRAVITY_DEFAULT_PROJECT_ID, options, settings);
+        const response = yield* executeRequest(token, payload, false);
+        const json = yield* response.json.pipe(
+            Effect.mapError(
+                (e) =>
+                    new AntigravityError({
+                        message: `Failed to read response body: ${e}`,
+                        cause: e,
+                    }),
+            ),
+        );
 
-        yield* Effect.logDebug(`[Antigravity] Generate request: ${modelId}`);
-
-        return yield* Effect.tryPromise({
-            try: async () => {
-                const response = await fetch(`${BASE_URL}:generateContent`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "Content-Type": "application/json",
-                        ...ANTIGRAVITY_HEADERS,
-                    },
-                    body: JSON.stringify(payload),
-                });
-
-                if (!response.ok) {
-                    await handleAntigravityError(response);
-                }
-
-                const parsed = await Schema.decodeUnknownPromise(GenerateResponseSchema)(await response.json());
-                const json = parsed.response || parsed;
-                const candidate = json.candidates?.[0];
-                const part = candidate?.content?.parts?.[0];
-
-                const content: LanguageModelV3GenerateResult["content"] = [];
-                const thoughtSignature = Match.value(part?.thoughtSignature).pipe(
-                    Match.when(Match.nonEmptyString, (value) => value),
-                    Match.orElse(() => undefined),
-                );
-
-                if (part?.text) {
-                    const text =
-                        options.responseFormat?.type === "json" ? stripMarkdownCodeBlock(part.text) : part.text;
-
-                    content.push({
-                        type: "text",
-                        text,
-                        providerMetadata: thoughtSignature ? { "google-antigravity": { thoughtSignature } } : undefined,
-                    });
-                }
-
-                if (part?.functionCall) {
-                    const argsString = JSON.stringify(part.functionCall.args);
-
-                    content.push({
-                        type: "tool-call",
-                        toolCallId: crypto.randomUUID(),
-                        toolName: part.functionCall.name,
-                        input: argsString,
-                        providerMetadata: thoughtSignature ? { "google-antigravity": { thoughtSignature } } : undefined,
-                    });
-                }
-
-                const finishReason = mapFinishReason(candidate?.finishReason);
-
-                const usage = {
-                    inputTokens: {
-                        total: json.usageMetadata?.promptTokenCount || 0,
-                        noCache: undefined,
-                        cacheRead: undefined,
-                        cacheWrite: undefined,
-                    },
-                    outputTokens: {
-                        total: json.usageMetadata?.candidatesTokenCount || 0,
-                        text: undefined,
-                        reasoning: undefined,
-                    },
-                };
-
-                return {
-                    content,
-                    finishReason,
-                    usage,
-                    rawCall: { rawPrompt: payload.request.contents, rawSettings: options },
-                    warnings: [],
-                };
-            },
-            catch: (e) => {
-                if (
-                    e instanceof AntigravityError ||
-                    e instanceof AntigravityAuthError ||
-                    e instanceof AntigravityRateLimitError
-                ) {
-                    return e;
-                }
-                return new AntigravityError({ message: String(e), cause: e });
-            },
+        const parsed = yield* Effect.tryPromise({
+            try: () => Schema.decodeUnknownPromise(GenerateResponseSchema)(json),
+            catch: (e) =>
+                new AntigravityError({
+                    message: `Failed to parse response: ${e}`,
+                    cause: e,
+                }),
         });
-    }).pipe(Effect.tapError((e) => Effect.logError(`[Antigravity] Generate error: ${e.message}`)));
 
-export const streamRequest = (modelId: string, token: string, projectId: string, options: LanguageModelV3CallOptions) =>
+        // Extract candidates from response (handle both direct and wrapped response)
+        const candidates = parsed.response?.candidates ?? parsed.candidates ?? [];
+        const usageMetadata = parsed.response?.usageMetadata ?? parsed.usageMetadata;
+        const candidate = candidates[0];
+        const parts = candidate?.content?.parts ?? [];
+
+        const content = mapApiPartsToContent(
+            parts.map((p) => ({
+                text: p.text,
+                thought: false, // Schema doesn't include thought
+                functionCall: p.functionCall
+                    ? {
+                          name: p.functionCall.name,
+                          args: p.functionCall.args as Record<string, unknown>,
+                      }
+                    : undefined,
+                thoughtSignature: p.thoughtSignature,
+            })),
+            options.responseFormat?.type === "json",
+        );
+
+        const result: LanguageModelV3GenerateResult = {
+            content,
+            finishReason: mapFinishReason(candidate?.finishReason),
+            usage: mapUsage(usageMetadata),
+            warnings: [],
+            request: { body: payload },
+        };
+
+        return result;
+    });
+
+/**
+ * Parse SSE line to extract JSON data
+ */
+const parseSSELine = (line: string): StreamChunk | null => {
+    if (!line.startsWith("data: ")) return null;
+    const data = line.slice(6).trim();
+    if (data === "[DONE]" || data === "") return null;
+    try {
+        return JSON.parse(data) as StreamChunk;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Generate a streaming response
+ */
+export const streamRequest = (
+    modelId: string,
+    token: string,
+    projectId: string,
+    options: LanguageModelV3CallOptions,
+    settings?: AntigravityProviderSettings,
+): Effect.Effect<
+    LanguageModelV3StreamResult,
+    AntigravityError | AntigravityAuthError | AntigravityRateLimitError | HttpBodyError,
+    HttpClient.HttpClient
+> =>
     Effect.gen(function* () {
-        const payload = buildPayload(modelId, projectId, options);
+        const payload = buildRequestPayload(modelId, projectId ?? ANTIGRAVITY_DEFAULT_PROJECT_ID, options, settings);
+        const response = yield* executeRequest(token, payload, true);
 
-        yield* Effect.logDebug(`[Antigravity] Stream request: ${modelId}`);
+        // Get the response body as a stream
+        const bodyStream = response.stream;
 
-        return yield* Effect.tryPromise({
-            try: async () => {
-                const response = await fetch(`${BASE_URL}:streamGenerateContent?alt=sse`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "Content-Type": "application/json",
-                        Accept: "text/event-stream",
-                        ...ANTIGRAVITY_HEADERS,
-                    },
-                    body: JSON.stringify(payload),
-                });
+        const textId = `text-${Date.now()}`;
+        const reasoningId = `reasoning-${Date.now()}`;
+        let textStarted = false;
+        let reasoningStarted = false;
+        const toolInputBuffers = new Map<string, { name: string; input: string; started: boolean }>();
+        let buffer = "";
 
-                if (!response.ok) {
-                    await handleAntigravityError(response);
-                }
+        const partStream: Stream.Stream<LanguageModelV3StreamPart, AntigravityError, never> = Stream.fromEffect(
+            Effect.succeed({ type: "stream-start" as const, warnings: [] }),
+        ).pipe(
+            Stream.concat(
+                bodyStream.pipe(
+                    Stream.mapError(
+                        (e) =>
+                            new AntigravityError({
+                                message: `Stream error: ${e}`,
+                                cause: e,
+                            }),
+                    ),
+                    Stream.mapConcat((chunk): LanguageModelV3StreamPart[] => {
+                        const text = new TextDecoder().decode(chunk);
+                        buffer += text;
 
-                const stream = new ReadableStream<LanguageModelV3StreamPart>({
-                    async start(controller) {
-                        const reader = response.body?.getReader();
-                        if (!reader) {
-                            controller.close();
-                            return;
-                        }
+                        const parts: LanguageModelV3StreamPart[] = [];
+                        const lines = buffer.split("\n");
+                        buffer = lines.pop() ?? "";
 
-                        const decoder = new TextDecoder();
-                        let buffer = "";
+                        for (const line of lines) {
+                            const parsed = parseSSELine(line);
+                            if (!parsed) continue;
 
-                        try {
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
+                            const candidates = parsed.response?.candidates ?? parsed.candidates ?? [];
+                            const usageMetadata = parsed.response?.usageMetadata ?? parsed.usageMetadata;
+                            const candidate = candidates[0];
+                            const apiParts = candidate?.content?.parts ?? [];
 
-                                buffer += decoder.decode(value, { stream: true });
-                                const lines = buffer.split("\n");
-                                buffer = lines.pop() || "";
+                            for (const part of apiParts) {
+                                // Handle reasoning/thought
+                                if (part.thought && part.text != null) {
+                                    if (!reasoningStarted) {
+                                        parts.push({
+                                            type: "reasoning-start",
+                                            id: reasoningId,
+                                            providerMetadata: part.thoughtSignature
+                                                ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                                : undefined,
+                                        });
+                                        reasoningStarted = true;
+                                    }
+                                    parts.push({
+                                        type: "reasoning-delta",
+                                        id: reasoningId,
+                                        delta: part.text,
+                                        providerMetadata: part.thoughtSignature
+                                            ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                            : undefined,
+                                    });
+                                }
+                                // Handle text
+                                else if (part.text != null && !part.functionCall) {
+                                    if (!textStarted) {
+                                        parts.push({ type: "text-start", id: textId });
+                                        textStarted = true;
+                                    }
+                                    parts.push({
+                                        type: "text-delta",
+                                        id: textId,
+                                        delta: part.text,
+                                    });
+                                }
+                                // Handle function calls
+                                else if (part.functionCall) {
+                                    const callId =
+                                        part.functionCall.id ??
+                                        `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                                    const existing = toolInputBuffers.get(callId);
 
-                                for (const line of lines) {
-                                    if (line.startsWith("data: ")) {
-                                        const data = line.slice(6);
-                                        if (data === "[DONE]") continue;
-                                        try {
-                                            const parsed = JSON.parse(data);
-                                            const decoded = Schema.decodeUnknownSync(GenerateResponseSchema)(parsed);
-                                            const json = decoded.response || decoded;
-                                            const candidate = json.candidates?.[0];
-                                            const part = candidate?.content?.parts?.[0];
-
-                                            if (part?.text) {
-                                                const thoughtSignature = Match.value(part?.thoughtSignature).pipe(
-                                                    Match.when(Match.nonEmptyString, (value) => value),
-                                                    Match.orElse(() => undefined),
-                                                );
-
-                                                let delta = part.text;
-                                                if (options.responseFormat?.type === "json") {
-                                                    delta = delta.replace(/^```(?:json|JSON)?\s*\n?/, "");
-                                                    delta = delta.replace(/\n?```\s*$/, "");
-                                                }
-
-                                                controller.enqueue({
-                                                    type: "text-delta",
-                                                    id: crypto.randomUUID(),
-                                                    delta,
-                                                    providerMetadata: thoughtSignature
-                                                        ? { "google-antigravity": { thoughtSignature } }
-                                                        : undefined,
-                                                });
-                                            }
-
-                                            if (part?.functionCall) {
-                                                const callId = crypto.randomUUID();
-                                                const argsString = JSON.stringify(part.functionCall.args);
-                                                const thoughtSignature =
-                                                    part.thoughtSignature && typeof part.thoughtSignature === "string"
-                                                        ? part.thoughtSignature
-                                                        : undefined;
-
-                                                controller.enqueue({
-                                                    type: "tool-call",
-                                                    toolCallId: callId,
-                                                    toolName: part.functionCall.name,
-                                                    input: argsString,
-                                                    providerMetadata: thoughtSignature
-                                                        ? { "google-antigravity": { thoughtSignature } }
-                                                        : undefined,
-                                                });
-                                            }
-
-                                            if (candidate?.finishReason) {
-                                                const finishReason = mapFinishReason(candidate.finishReason);
-
-                                                controller.enqueue({
-                                                    type: "finish",
-                                                    finishReason,
-                                                    usage: {
-                                                        inputTokens: {
-                                                            total: json.usageMetadata?.promptTokenCount || 0,
-                                                            noCache: undefined,
-                                                            cacheRead: undefined,
-                                                            cacheWrite: undefined,
-                                                        },
-                                                        outputTokens: {
-                                                            total: json.usageMetadata?.candidatesTokenCount || 0,
-                                                            text: undefined,
-                                                            reasoning: undefined,
-                                                        },
-                                                    },
-                                                });
-                                            }
-                                        } catch (_e) {}
+                                    if (!existing) {
+                                        // Start new tool input
+                                        toolInputBuffers.set(callId, {
+                                            name: part.functionCall.name,
+                                            input: JSON.stringify(part.functionCall.args ?? {}),
+                                            started: true,
+                                        });
+                                        parts.push({
+                                            type: "tool-input-start",
+                                            id: callId,
+                                            toolName: part.functionCall.name,
+                                            providerMetadata: part.thoughtSignature
+                                                ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                                : undefined,
+                                        });
+                                        parts.push({
+                                            type: "tool-input-delta",
+                                            id: callId,
+                                            delta: JSON.stringify(part.functionCall.args ?? {}),
+                                        });
+                                        parts.push({
+                                            type: "tool-input-end",
+                                            id: callId,
+                                        });
+                                        parts.push({
+                                            type: "tool-call",
+                                            toolCallId: callId,
+                                            toolName: part.functionCall.name,
+                                            input: JSON.stringify(part.functionCall.args ?? {}),
+                                            providerMetadata: part.thoughtSignature
+                                                ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                                : undefined,
+                                        });
                                     }
                                 }
                             }
-                        } finally {
-                            controller.close();
-                        }
-                    },
-                });
 
-                return { stream };
-            },
-            catch: (e) => {
-                if (
-                    e instanceof AntigravityError ||
-                    e instanceof AntigravityAuthError ||
-                    e instanceof AntigravityRateLimitError
-                ) {
-                    return e;
-                }
-                return new AntigravityError({ message: String(e), cause: e });
-            },
-        });
-    }).pipe(Effect.tapError((e) => Effect.logError(`[Antigravity] Stream error: ${e.message}`)));
+                            // Handle finish
+                            if (candidate?.finishReason) {
+                                // Close any open streams
+                                if (reasoningStarted) {
+                                    parts.push({ type: "reasoning-end", id: reasoningId });
+                                }
+                                if (textStarted) {
+                                    parts.push({ type: "text-end", id: textId });
+                                }
+
+                                parts.push({
+                                    type: "finish",
+                                    finishReason: mapFinishReason(candidate.finishReason),
+                                    usage: mapUsage(usageMetadata),
+                                });
+                            }
+                        }
+
+                        return parts;
+                    }),
+                ),
+            ),
+        );
+
+        // Convert to a stream that catches errors
+        const safeStream = partStream.pipe(
+            Stream.catchAll((e) =>
+                Stream.succeed({
+                    type: "error" as const,
+                    error: e,
+                }),
+            ),
+        );
+
+        const result: LanguageModelV3StreamResult = {
+            stream: Stream.toReadableStream(safeStream),
+            request: { body: payload },
+        };
+
+        return result;
+    });

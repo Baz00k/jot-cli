@@ -1,4 +1,5 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
+import { FetchHttpClient } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
 import { Config } from "@/services/config";
@@ -6,12 +7,15 @@ import { AppLogger } from "@/services/logger";
 import { getValidToken } from "./auth";
 import { generateRequest, streamRequest } from "./client";
 import { AntigravityError } from "./errors";
+import type { AntigravityProviderSettings } from "./types";
 
-const AntigravityRuntime = Layer.mergeAll(Config.Default, AppLogger).pipe(Layer.provideMerge(BunContext.layer));
+const AntigravityRuntime = Layer.mergeAll(Config.Default, AppLogger, FetchHttpClient.layer).pipe(
+    Layer.provideMerge(BunContext.layer),
+);
 
 export const createAntigravity =
     () =>
-    (modelId: string, _settings?: unknown): LanguageModelV3 => {
+    (modelId: string, settings?: AntigravityProviderSettings): LanguageModelV3 => {
         return {
             specificationVersion: "v3",
             provider: "google-antigravity",
@@ -31,7 +35,7 @@ export const createAntigravity =
                             });
                         }
 
-                        return yield* generateRequest(modelId, token, projectId, options);
+                        return yield* generateRequest(modelId, token, projectId, options, settings);
                     }).pipe(Effect.provide(AntigravityRuntime)),
                 );
             },
@@ -49,7 +53,7 @@ export const createAntigravity =
                             });
                         }
 
-                        return yield* streamRequest(modelId, token, projectId, options);
+                        return yield* streamRequest(modelId, token, projectId, options, settings);
                     }).pipe(Effect.provide(AntigravityRuntime)),
                 );
             },

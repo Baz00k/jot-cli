@@ -16,6 +16,7 @@ export interface FunctionDeclaration {
 
 export interface ApiPart {
     text?: string;
+    thought?: boolean;
     functionCall?: {
         name: string;
         args: Record<string, unknown>;
@@ -43,17 +44,60 @@ export interface ApiRequest {
     model: string;
     request: {
         contents: ApiContent[];
-        systemInstruction?: { parts: { text: string }[] };
+        systemInstruction: {
+            parts: { text: string }[];
+            role: "user";
+        };
         tools?: { functionDeclarations: FunctionDeclaration[] }[];
+        toolConfig?: {
+            functionCallingConfig?: {
+                mode?: "AUTO" | "VALIDATED";
+            };
+        };
         generationConfig: {
             temperature?: number;
+            topK?: number;
             topP?: number;
             maxOutputTokens?: number;
+            thinkingConfig?: {
+                includeThoughts?: boolean;
+                thinkingLevel?: string;
+                thinkingBudget?: number;
+            };
         };
+        sessionId?: string;
     };
     requestType: "agent";
-    userAgent: string;
+    userAgent: "antigravity";
     requestId: string;
+}
+
+export interface Candidate {
+    content?: {
+        parts?: ApiPart[];
+        role?: "model";
+    };
+    finishReason?: string;
+    safetyRatings?: Array<{
+        category: string;
+        probability: string;
+    }>;
+}
+
+export interface UsageMetadata {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+    thoughtTokenCount?: number;
+}
+
+export interface StreamChunk {
+    candidates?: Candidate[];
+    usageMetadata?: UsageMetadata;
+    response?: {
+        candidates?: Candidate[];
+        usageMetadata?: UsageMetadata;
+    };
 }
 
 export type AntigravityErrorResponse = {
@@ -61,6 +105,17 @@ export type AntigravityErrorResponse = {
         code?: number;
         message?: string;
         status?: string;
-        details?: Array<{ retryDelay?: string }>;
+        details?: Array<{
+            "@type": string;
+            retryDelay?: string;
+        }>;
     };
 };
+
+export interface AntigravityProviderSettings {
+    reasoning?: {
+        effort?: "low" | "medium" | "high";
+        enabled?: boolean;
+    };
+    [key: string]: unknown;
+}

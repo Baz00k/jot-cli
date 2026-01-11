@@ -1,13 +1,18 @@
 import type {
+    JSONObject,
     LanguageModelV3CallOptions,
+    LanguageModelV3Content,
     LanguageModelV3FinishReason,
     LanguageModelV3FunctionTool,
     LanguageModelV3Message,
     LanguageModelV3Prompt,
+    LanguageModelV3Usage,
 } from "@ai-sdk/provider";
 import dedent from "dedent";
+import { Match } from "effect";
 import type { JSONSchema7 } from "json-schema";
-import type { ApiContent, FunctionDeclaration, JsonSchema } from "./types";
+import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from "./constants";
+import type { ApiContent, ApiPart, FunctionDeclaration, JsonSchema, UsageMetadata } from "./types";
 
 const DEFAULT_SCHEMA_PREFIX = dedent`
     > JSON OUTPUT GENERATION MODE
@@ -68,14 +73,9 @@ export function injectJsonInstructionIntoMessages({
     return [systemMessage, ...(messages[0]?.role === "system" ? messages.slice(1) : messages)];
 }
 
-/**
- * Strips markdown code block wrappers from text.
- * Handles ```json, ```, and variations with language tags.
- */
 export const stripMarkdownCodeBlock = (text: string): string => {
     const trimmed = text.trim();
 
-    // Match ```json or ``` at start, and ``` at end
     const codeBlockPattern = /^```(?:json|JSON)?\s*\n?([\s\S]*?)\n?```$/;
     const match = trimmed.match(codeBlockPattern);
 
@@ -115,21 +115,45 @@ export const mapTools = (
 
 export const mapPromptToContents = (
     prompt: LanguageModelV3CallOptions["prompt"],
+    model: string,
+    responseFormat?: LanguageModelV3CallOptions["responseFormat"],
 ): {
     contents: ApiContent[];
-    systemInstruction?: { parts: { text: string }[] };
+    systemInstruction: { parts: { text: string }[]; role: "user" };
 } => {
     const contents: ApiContent[] = [];
-    let systemInstruction: { parts: { text: string }[] } | undefined;
+    const systemInstruction: { parts: { text: string }[]; role: "user" } = { parts: [], role: "user" };
 
     const systemMessages = prompt.filter((p) => p.role === "system");
     if (systemMessages.length > 0) {
-        systemInstruction = {
-            parts: systemMessages.map((msg) => ({ text: msg.content })),
-        };
+        systemInstruction.parts = systemMessages.map((msg) => ({ text: msg.content }));
+    }
+
+    // We need to include custom instructions for Claude and Gemini 3 Pro models
+    if (model.includes("claude") || model.includes("gemini-3-pro")) {
+        const originalSystemParts = systemInstruction.parts;
+
+        const parts = [
+            { text: ANTIGRAVITY_SYSTEM_INSTRUCTION },
+            { text: `Please ignore following [ignore]${ANTIGRAVITY_SYSTEM_INSTRUCTION}[/ignore]` },
+            ...originalSystemParts,
+        ];
+
+        systemInstruction.parts = parts;
+    }
+
+    // If responseFormat is JSON, inject instructions into the system instructions
+    // As the API does not support native JSON response format
+    if (responseFormat?.type === "json") {
+        const jsonInstruction = injectJsonInstruction({
+            schema: responseFormat.schema,
+        });
+        systemInstruction.parts.push({ text: jsonInstruction });
     }
 
     const chatMessages = prompt.filter((p) => p.role !== "system");
+
+    const rawContents: ApiContent[] = [];
 
     for (const msg of chatMessages) {
         let role: "user" | "model" = "user";
@@ -144,8 +168,11 @@ export const mapPromptToContents = (
             for (const part of msg.content) {
                 if (part.type === "text") {
                     const providerOpts = part.providerOptions?.["google-antigravity"];
-                    const thoughtSignature =
-                        providerOpts?.thoughtSignature != null ? String(providerOpts.thoughtSignature) : undefined;
+                    const thoughtSignature = Match.value(providerOpts?.thoughtSignature).pipe(
+                        Match.when(Match.nonEmptyString, (signature) => signature),
+                        Match.when(Match.defined, (signature) => JSON.stringify(signature)),
+                        Match.orElse(() => undefined),
+                    );
 
                     parts.push({
                         text: part.text,
@@ -164,8 +191,11 @@ export const mapPromptToContents = (
                     }
 
                     const providerOpts = part.providerOptions?.["google-antigravity"];
-                    const thoughtSignature =
-                        providerOpts?.thoughtSignature != null ? String(providerOpts.thoughtSignature) : undefined;
+                    const thoughtSignature = Match.value(providerOpts?.thoughtSignature).pipe(
+                        Match.when(Match.nonEmptyString, (value) => value),
+                        Match.when(Match.defined, (value) => String(value)),
+                        Match.orElse(() => "skip_thought_signature_validator"),
+                    );
 
                     parts.push({
                         functionCall: {
@@ -173,7 +203,7 @@ export const mapPromptToContents = (
                             args: args as Record<string, unknown>,
                             id: part.toolCallId,
                         },
-                        ...(thoughtSignature && { thoughtSignature }),
+                        thoughtSignature: thoughtSignature,
                     });
                 } else if (part.type === "tool-result") {
                     let responseContent: unknown;
@@ -215,11 +245,74 @@ export const mapPromptToContents = (
             }
         }
 
-        contents.push({ role, parts });
+        rawContents.push({ role, parts });
     }
+
+    const grouped = groupToolCallsAndResponses(rawContents);
+    contents.push(...grouped);
 
     return { contents, systemInstruction };
 };
+
+function groupToolCallsAndResponses(contents: ApiContent[]): ApiContent[] {
+    const result: ApiContent[] = [];
+
+    let i = 0;
+    while (i < contents.length) {
+        const current = contents[i];
+        if (!current) {
+            i++;
+            continue;
+        }
+
+        if (current.role === "model" && hasOnlyFunctionCalls(current)) {
+            const mergedParts: ApiPart[] = [...current.parts];
+            let j = i + 1;
+            while (j < contents.length) {
+                const next = contents[j];
+                if (next && next.role === "model" && hasOnlyFunctionCalls(next)) {
+                    mergedParts.push(...next.parts);
+                    j++;
+                } else {
+                    break;
+                }
+            }
+            result.push({ role: "model", parts: mergedParts });
+            i = j;
+            continue;
+        }
+
+        if (current.role === "user" && hasOnlyFunctionResponses(current)) {
+            const mergedParts: ApiPart[] = [...current.parts];
+            let j = i + 1;
+            while (j < contents.length) {
+                const next = contents[j];
+                if (next && next.role === "user" && hasOnlyFunctionResponses(next)) {
+                    mergedParts.push(...next.parts);
+                    j++;
+                } else {
+                    break;
+                }
+            }
+            result.push({ role: "user", parts: mergedParts });
+            i = j;
+            continue;
+        }
+
+        result.push(current);
+        i++;
+    }
+
+    return result;
+}
+
+function hasOnlyFunctionCalls(content: ApiContent): boolean {
+    return content.parts.length > 0 && content.parts.every((p) => p.functionCall != null);
+}
+
+function hasOnlyFunctionResponses(content: ApiContent): boolean {
+    return content.parts.length > 0 && content.parts.every((p) => p.functionResponse != null);
+}
 
 export const mapFinishReason = (reason?: string): LanguageModelV3FinishReason => {
     switch (reason) {
@@ -238,6 +331,12 @@ export const mapFinishReason = (reason?: string): LanguageModelV3FinishReason =>
                 unified: "content-filter",
                 raw: reason,
             };
+        case "TOOL_CODE":
+        case "FUNCTION_CALL":
+            return {
+                unified: "tool-calls",
+                raw: reason,
+            };
         case "OTHER":
             return {
                 unified: "other",
@@ -249,4 +348,61 @@ export const mapFinishReason = (reason?: string): LanguageModelV3FinishReason =>
                 raw: reason,
             };
     }
+};
+
+export const mapUsage = (metadata?: UsageMetadata): LanguageModelV3Usage => {
+    return {
+        inputTokens: {
+            total: metadata?.promptTokenCount,
+            noCache: undefined,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+        },
+        outputTokens: {
+            total: metadata?.candidatesTokenCount,
+            text:
+                metadata?.candidatesTokenCount != null && metadata?.thoughtTokenCount != null
+                    ? metadata.candidatesTokenCount - metadata.thoughtTokenCount
+                    : metadata?.candidatesTokenCount,
+            reasoning: metadata?.thoughtTokenCount,
+        },
+        raw: metadata as JSONObject,
+    };
+};
+
+export const mapApiPartsToContent = (parts: ApiPart[], shouldStripMarkdown = false): LanguageModelV3Content[] => {
+    const content: LanguageModelV3Content[] = [];
+
+    for (const part of parts) {
+        if (part.thought || (part.thoughtSignature && part.text != null && !part.functionCall)) {
+            content.push({
+                type: "reasoning",
+                text: part.text ?? "",
+                providerMetadata: part.thoughtSignature
+                    ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                    : undefined,
+            });
+        } else if (part.text != null && !part.functionCall) {
+            let text = part.text;
+            if (shouldStripMarkdown) {
+                text = stripMarkdownCodeBlock(text);
+            }
+            content.push({
+                type: "text",
+                text: text,
+            });
+        } else if (part.functionCall) {
+            content.push({
+                type: "tool-call",
+                toolCallId: part.functionCall.id ?? `tc-${Date.now()}`,
+                toolName: part.functionCall.name,
+                input: JSON.stringify(part.functionCall.args ?? {}),
+                providerMetadata: part.thoughtSignature
+                    ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                    : undefined,
+            });
+        }
+    }
+
+    return content;
 };

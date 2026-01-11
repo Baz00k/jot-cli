@@ -21,7 +21,7 @@ export class AntigravityAuthError extends Data.TaggedError("AntigravityAuthError
 
 export class AntigravityRateLimitError extends Data.TaggedError("AntigravityRateLimitError")<{
     readonly message: string;
-    readonly retryAfter?: number;
+    readonly retryAfter?: number; // milliseconds
 }> {
     readonly isRetryable = true;
     readonly statusCode = 429;
