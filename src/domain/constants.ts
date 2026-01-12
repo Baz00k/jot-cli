@@ -11,7 +11,7 @@ export const DEFAULT_MODEL_WRITER = "moonshotai/kimi-k2-thinking";
 export const DEFAULT_MODEL_REVIEWER = "google/gemini-3-pro-preview";
 
 /** Maximum number of steps allowed in a single iteration */
-export const MAX_STEP_COUNT = 20;
+export const MAX_STEP_COUNT = 50;
 
 /** Maximum number of iterations on a draft before generation fails */
 export const DEFAULT_MAX_AGENT_ITERATIONS = 10;
