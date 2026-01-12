@@ -7,11 +7,10 @@ import type {
 } from "@ai-sdk/provider";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import type { HttpBodyError } from "@effect/platform/HttpBody";
-import { Effect, Schema, Stream } from "effect";
+import { Chunk, Effect, Stream } from "effect";
 import { ANTIGRAVITY_DEFAULT_PROJECT_ID, ANTIGRAVITY_ENDPOINT_FALLBACKS, ANTIGRAVITY_HEADERS } from "./constants";
 import { AntigravityAuthError, AntigravityError, AntigravityRateLimitError } from "./errors";
-import { mapApiPartsToContent, mapFinishReason, mapPromptToContents, mapTools, mapUsage } from "./mappers";
-import { GenerateResponseSchema } from "./schemas";
+import { mapFinishReason, mapPromptToContents, mapTools, mapUsage, stripMarkdownCodeBlock } from "./mappers";
 import type { AntigravityErrorResponse, AntigravityProviderSettings, ApiRequest, StreamChunk } from "./types";
 
 /**
@@ -268,6 +267,276 @@ const executeRequest = (token: string, payload: ApiRequest, stream: boolean) =>
     });
 
 /**
+ * Parse SSE line to extract JSON data
+ */
+const parseSSELine = (line: string): StreamChunk | null => {
+    if (!line.startsWith("data: ")) return null;
+    const data = line.slice(6).trim();
+    if (data === "[DONE]" || data === "") return null;
+    try {
+        return JSON.parse(data) as StreamChunk;
+    } catch {
+        return null;
+    }
+};
+
+const parseResponseStream = (
+    bodyStream: Stream.Stream<Uint8Array, AntigravityError, never>,
+): Stream.Stream<LanguageModelV3StreamPart, AntigravityError, never> => {
+    const textId = `text-${Date.now()}`;
+    const reasoningId = `reasoning-${Date.now()}`;
+    let textStarted = false;
+    let reasoningStarted = false;
+    const toolInputBuffers = new Map<string, { name: string; input: string; started: boolean }>();
+    let buffer = "";
+
+    return Stream.fromEffect(Effect.succeed({ type: "stream-start" as const, warnings: [] })).pipe(
+        Stream.concat(
+            bodyStream.pipe(
+                Stream.mapConcat((chunk): LanguageModelV3StreamPart[] => {
+                    const text = new TextDecoder().decode(chunk);
+                    buffer += text;
+
+                    const parts: LanguageModelV3StreamPart[] = [];
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() ?? "";
+
+                    for (const line of lines) {
+                        const parsed = parseSSELine(line);
+                        if (!parsed) continue;
+
+                        const candidates = parsed.response?.candidates ?? parsed.candidates ?? [];
+                        const usageMetadata = parsed.response?.usageMetadata ?? parsed.usageMetadata;
+                        const candidate = candidates[0];
+                        const apiParts = candidate?.content?.parts ?? [];
+
+                        for (const part of apiParts) {
+                            // Handle reasoning/thought
+                            if (part.thought && part.text != null) {
+                                if (!reasoningStarted) {
+                                    parts.push({
+                                        type: "reasoning-start",
+                                        id: reasoningId,
+                                        providerMetadata: part.thoughtSignature
+                                            ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                            : undefined,
+                                    });
+                                    reasoningStarted = true;
+                                }
+                                parts.push({
+                                    type: "reasoning-delta",
+                                    id: reasoningId,
+                                    delta: part.text,
+                                    providerMetadata: part.thoughtSignature
+                                        ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                        : undefined,
+                                });
+                            }
+                            // Handle text
+                            else if (part.text != null && !part.functionCall) {
+                                if (!textStarted) {
+                                    parts.push({ type: "text-start", id: textId });
+                                    textStarted = true;
+                                }
+                                parts.push({
+                                    type: "text-delta",
+                                    id: textId,
+                                    delta: part.text,
+                                });
+                            }
+                            // Handle function calls
+                            else if (part.functionCall) {
+                                const callId =
+                                    part.functionCall.id ?? `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                                const existing = toolInputBuffers.get(callId);
+
+                                if (!existing) {
+                                    // Start new tool input
+                                    toolInputBuffers.set(callId, {
+                                        name: part.functionCall.name,
+                                        input: JSON.stringify(part.functionCall.args ?? {}),
+                                        started: true,
+                                    });
+                                    parts.push({
+                                        type: "tool-input-start",
+                                        id: callId,
+                                        toolName: part.functionCall.name,
+                                        providerMetadata: part.thoughtSignature
+                                            ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                            : undefined,
+                                    });
+                                    parts.push({
+                                        type: "tool-input-delta",
+                                        id: callId,
+                                        delta: JSON.stringify(part.functionCall.args ?? {}),
+                                    });
+                                    parts.push({
+                                        type: "tool-input-end",
+                                        id: callId,
+                                    });
+                                    parts.push({
+                                        type: "tool-call",
+                                        toolCallId: callId,
+                                        toolName: part.functionCall.name,
+                                        input: JSON.stringify(part.functionCall.args ?? {}),
+                                        providerMetadata: part.thoughtSignature
+                                            ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
+                                            : undefined,
+                                    });
+                                }
+                            }
+                        }
+
+                        // Handle finish
+                        if (candidate?.finishReason) {
+                            // Close any open streams
+                            if (reasoningStarted) {
+                                parts.push({ type: "reasoning-end", id: reasoningId });
+                            }
+                            if (textStarted) {
+                                parts.push({ type: "text-end", id: textId });
+                            }
+
+                            parts.push({
+                                type: "finish",
+                                finishReason: mapFinishReason(candidate.finishReason),
+                                usage: mapUsage(usageMetadata),
+                            });
+                        }
+                    }
+
+                    return parts;
+                }),
+            ),
+        ),
+    );
+};
+
+/**
+ * Creates a response stream from the streaming API endpoint.
+ * This is the core primitive that both generateRequest and streamRequest build upon.
+ */
+const createResponseStream = (
+    modelId: string,
+    token: string,
+    projectId: string,
+    options: LanguageModelV3CallOptions,
+    settings?: AntigravityProviderSettings,
+): Effect.Effect<
+    { stream: Stream.Stream<LanguageModelV3StreamPart, AntigravityError, never>; payload: ApiRequest },
+    AntigravityError | AntigravityAuthError | AntigravityRateLimitError | HttpBodyError,
+    HttpClient.HttpClient
+> =>
+    Effect.gen(function* () {
+        const payload = buildRequestPayload(modelId, projectId ?? ANTIGRAVITY_DEFAULT_PROJECT_ID, options, settings);
+        const response = yield* executeRequest(token, payload, true);
+
+        const bodyStream = response.stream.pipe(
+            Stream.mapError(
+                (e) =>
+                    new AntigravityError({
+                        message: `Stream error: ${e}`,
+                        cause: e,
+                    }),
+            ),
+        );
+
+        const partStream = parseResponseStream(bodyStream);
+        return { stream: partStream, payload };
+    });
+
+/**
+ * Aggregates stream parts into a complete generate result.
+ * Handles text, reasoning, tool calls, usage, and finish reason.
+ */
+const aggregateStreamParts = (
+    parts: readonly LanguageModelV3StreamPart[],
+    payload: ApiRequest,
+    isJsonResponse: boolean,
+): LanguageModelV3GenerateResult => {
+    let text = "";
+    let reasoning = "";
+    let finishReason: LanguageModelV3GenerateResult["finishReason"] = {
+        unified: "other",
+        raw: "unknown",
+    };
+    let usage: LanguageModelV3GenerateResult["usage"] = {
+        inputTokens: {
+            total: 0,
+            noCache: undefined,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+        },
+        outputTokens: {
+            total: 0,
+            text: 0,
+            reasoning: 0,
+        },
+    };
+    const toolCalls: Record<string, { name: string; args: string }> = {};
+
+    for (const part of parts) {
+        switch (part.type) {
+            case "text-delta":
+                text += part.delta;
+                break;
+            case "reasoning-delta":
+                reasoning += part.delta;
+                break;
+            case "tool-call":
+                toolCalls[part.toolCallId] = {
+                    name: part.toolName,
+                    args: part.input,
+                };
+                break;
+            case "finish":
+                finishReason = part.finishReason;
+                usage = part.usage;
+                break;
+        }
+    }
+
+    // Strip markdown code blocks for JSON responses
+    if (isJsonResponse && text) {
+        text = stripMarkdownCodeBlock(String(text));
+    }
+
+    // Build content array in order: reasoning → text → tool calls
+    const content: LanguageModelV3GenerateResult["content"] = [];
+
+    if (reasoning) {
+        content.push({
+            type: "reasoning",
+            text: reasoning,
+        });
+    }
+
+    if (text) {
+        content.push({
+            type: "text",
+            text,
+        });
+    }
+
+    for (const [id, call] of Object.entries(toolCalls)) {
+        content.push({
+            type: "tool-call",
+            toolCallId: id,
+            toolName: call.name,
+            input: call.args,
+        });
+    }
+
+    return {
+        content,
+        finishReason,
+        usage,
+        warnings: [],
+        request: { body: payload },
+    };
+};
+
+/**
  * Generate a non-streaming response
  */
 export const generateRequest = (
@@ -282,72 +551,11 @@ export const generateRequest = (
     HttpClient.HttpClient
 > =>
     Effect.gen(function* () {
-        const payload = buildRequestPayload(modelId, projectId ?? ANTIGRAVITY_DEFAULT_PROJECT_ID, options, settings);
-        const response = yield* executeRequest(token, payload, false);
-        const json = yield* response.json.pipe(
-            Effect.mapError(
-                (e) =>
-                    new AntigravityError({
-                        message: `Failed to read response body: ${e}`,
-                        cause: e,
-                    }),
-            ),
-        );
-
-        const parsed = yield* Effect.tryPromise({
-            try: () => Schema.decodeUnknownPromise(GenerateResponseSchema)(json),
-            catch: (e) =>
-                new AntigravityError({
-                    message: `Failed to parse response: ${e}`,
-                    cause: e,
-                }),
-        });
-
-        // Extract candidates from response (handle both direct and wrapped response)
-        const candidates = parsed.response?.candidates ?? parsed.candidates ?? [];
-        const usageMetadata = parsed.response?.usageMetadata ?? parsed.usageMetadata;
-        const candidate = candidates[0];
-        const parts = candidate?.content?.parts ?? [];
-
-        const content = mapApiPartsToContent(
-            parts.map((p) => ({
-                text: p.text,
-                thought: false, // Schema doesn't include thought
-                functionCall: p.functionCall
-                    ? {
-                          name: p.functionCall.name,
-                          args: p.functionCall.args as Record<string, unknown>,
-                      }
-                    : undefined,
-                thoughtSignature: p.thoughtSignature,
-            })),
-            options.responseFormat?.type === "json",
-        );
-
-        const result: LanguageModelV3GenerateResult = {
-            content,
-            finishReason: mapFinishReason(candidate?.finishReason),
-            usage: mapUsage(usageMetadata),
-            warnings: [],
-            request: { body: payload },
-        };
-
-        return result;
+        const { stream, payload } = yield* createResponseStream(modelId, token, projectId, options, settings);
+        const parts = yield* Stream.runCollect(stream);
+        const partsArray = Chunk.toReadonlyArray(parts);
+        return aggregateStreamParts(partsArray, payload, options.responseFormat?.type === "json");
     });
-
-/**
- * Parse SSE line to extract JSON data
- */
-const parseSSELine = (line: string): StreamChunk | null => {
-    if (!line.startsWith("data: ")) return null;
-    const data = line.slice(6).trim();
-    if (data === "[DONE]" || data === "") return null;
-    try {
-        return JSON.parse(data) as StreamChunk;
-    } catch {
-        return null;
-    }
-};
 
 /**
  * Generate a streaming response
@@ -364,152 +572,10 @@ export const streamRequest = (
     HttpClient.HttpClient
 > =>
     Effect.gen(function* () {
-        const payload = buildRequestPayload(modelId, projectId ?? ANTIGRAVITY_DEFAULT_PROJECT_ID, options, settings);
-        const response = yield* executeRequest(token, payload, true);
-
-        // Get the response body as a stream
-        const bodyStream = response.stream;
-
-        const textId = `text-${Date.now()}`;
-        const reasoningId = `reasoning-${Date.now()}`;
-        let textStarted = false;
-        let reasoningStarted = false;
-        const toolInputBuffers = new Map<string, { name: string; input: string; started: boolean }>();
-        let buffer = "";
-
-        const partStream: Stream.Stream<LanguageModelV3StreamPart, AntigravityError, never> = Stream.fromEffect(
-            Effect.succeed({ type: "stream-start" as const, warnings: [] }),
-        ).pipe(
-            Stream.concat(
-                bodyStream.pipe(
-                    Stream.mapError(
-                        (e) =>
-                            new AntigravityError({
-                                message: `Stream error: ${e}`,
-                                cause: e,
-                            }),
-                    ),
-                    Stream.mapConcat((chunk): LanguageModelV3StreamPart[] => {
-                        const text = new TextDecoder().decode(chunk);
-                        buffer += text;
-
-                        const parts: LanguageModelV3StreamPart[] = [];
-                        const lines = buffer.split("\n");
-                        buffer = lines.pop() ?? "";
-
-                        for (const line of lines) {
-                            const parsed = parseSSELine(line);
-                            if (!parsed) continue;
-
-                            const candidates = parsed.response?.candidates ?? parsed.candidates ?? [];
-                            const usageMetadata = parsed.response?.usageMetadata ?? parsed.usageMetadata;
-                            const candidate = candidates[0];
-                            const apiParts = candidate?.content?.parts ?? [];
-
-                            for (const part of apiParts) {
-                                // Handle reasoning/thought
-                                if (part.thought && part.text != null) {
-                                    if (!reasoningStarted) {
-                                        parts.push({
-                                            type: "reasoning-start",
-                                            id: reasoningId,
-                                            providerMetadata: part.thoughtSignature
-                                                ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
-                                                : undefined,
-                                        });
-                                        reasoningStarted = true;
-                                    }
-                                    parts.push({
-                                        type: "reasoning-delta",
-                                        id: reasoningId,
-                                        delta: part.text,
-                                        providerMetadata: part.thoughtSignature
-                                            ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
-                                            : undefined,
-                                    });
-                                }
-                                // Handle text
-                                else if (part.text != null && !part.functionCall) {
-                                    if (!textStarted) {
-                                        parts.push({ type: "text-start", id: textId });
-                                        textStarted = true;
-                                    }
-                                    parts.push({
-                                        type: "text-delta",
-                                        id: textId,
-                                        delta: part.text,
-                                    });
-                                }
-                                // Handle function calls
-                                else if (part.functionCall) {
-                                    const callId =
-                                        part.functionCall.id ??
-                                        `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                                    const existing = toolInputBuffers.get(callId);
-
-                                    if (!existing) {
-                                        // Start new tool input
-                                        toolInputBuffers.set(callId, {
-                                            name: part.functionCall.name,
-                                            input: JSON.stringify(part.functionCall.args ?? {}),
-                                            started: true,
-                                        });
-                                        parts.push({
-                                            type: "tool-input-start",
-                                            id: callId,
-                                            toolName: part.functionCall.name,
-                                            providerMetadata: part.thoughtSignature
-                                                ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
-                                                : undefined,
-                                        });
-                                        parts.push({
-                                            type: "tool-input-delta",
-                                            id: callId,
-                                            delta: JSON.stringify(part.functionCall.args ?? {}),
-                                        });
-                                        parts.push({
-                                            type: "tool-input-end",
-                                            id: callId,
-                                        });
-                                        parts.push({
-                                            type: "tool-call",
-                                            toolCallId: callId,
-                                            toolName: part.functionCall.name,
-                                            input: JSON.stringify(part.functionCall.args ?? {}),
-                                            providerMetadata: part.thoughtSignature
-                                                ? { "google-antigravity": { thoughtSignature: part.thoughtSignature } }
-                                                : undefined,
-                                        });
-                                    }
-                                }
-                            }
-
-                            // Handle finish
-                            if (candidate?.finishReason) {
-                                // Close any open streams
-                                if (reasoningStarted) {
-                                    parts.push({ type: "reasoning-end", id: reasoningId });
-                                }
-                                if (textStarted) {
-                                    parts.push({ type: "text-end", id: textId });
-                                }
-
-                                parts.push({
-                                    type: "finish",
-                                    finishReason: mapFinishReason(candidate.finishReason),
-                                    usage: mapUsage(usageMetadata),
-                                });
-                            }
-                        }
-
-                        return parts;
-                    }),
-                ),
-            ),
-        );
+        const { stream, payload } = yield* createResponseStream(modelId, token, projectId, options, settings);
 
         // Convert to a stream that catches errors
-        const safeStream = partStream.pipe(
+        const safeStream = stream.pipe(
             Stream.catchAll((e) =>
                 Stream.succeed({
                     type: "error" as const,
