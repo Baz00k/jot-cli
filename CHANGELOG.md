@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0](https://github.com/Baz00k/jot-cli/compare/v0.5.0...v0.6.0) (2026-01-12)
+
+
+### Features
+
+* add clipboard paste support ([90a175f](https://github.com/Baz00k/jot-cli/commit/90a175f5be3c6c902e9e756e1e49a43348977c98))
+* check antigravity quota command ([970d0fa](https://github.com/Baz00k/jot-cli/commit/970d0fac821989c057c9e2e5472f88e13d23f750))
+
+
+### Bug Fixes
+
+* agent status display ([148d6a1](https://github.com/Baz00k/jot-cli/commit/148d6a17393e3f904b7782d926730727edb81f24))
+* antigravity constant quota exhausted error ([3b6cb44](https://github.com/Baz00k/jot-cli/commit/3b6cb446ac4531693b4bcaf099e746ad2f707c2f))
+* antigravity provider failing with 429 errors ([1339775](https://github.com/Baz00k/jot-cli/commit/1339775724ba643551192b87cdd1bc06a82b0d76))
+* broken non-streaming generation ([5aaa56b](https://github.com/Baz00k/jot-cli/commit/5aaa56ba4611c25162d57820af1628c83d5f991a))
+* settings dialog error ([a52a8bc](https://github.com/Baz00k/jot-cli/commit/a52a8bc148e7cee6dfa067fea76f9ca06b922aa0))
+
 ## [0.5.0](https://github.com/Baz00k/jot-cli/compare/v0.4.1...v0.5.0) (2026-01-08)
 
 
