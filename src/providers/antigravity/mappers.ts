@@ -142,13 +142,14 @@ export const mapPromptToContents = (
         systemInstruction.parts = parts;
     }
 
-    // If responseFormat is JSON, inject instructions into the system instructions
+    // If responseFormat is JSON, inject instructions into the instructions
     // As the API does not support native JSON response format
     if (responseFormat?.type === "json") {
         const jsonInstruction = injectJsonInstruction({
             schema: responseFormat.schema,
         });
         systemInstruction.parts.push({ text: jsonInstruction });
+        contents.push({ role: "user", parts: [{ text: jsonInstruction }] });
     }
 
     const chatMessages = prompt.filter((p) => p.role !== "system");
