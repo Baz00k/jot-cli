@@ -27,6 +27,10 @@ export class Web extends Effect.Service<Web>()("services/web", {
             },
         ) =>
             Effect.gen(function* () {
+                if (query.trim().length === 0) {
+                    return yield* new WebSearchError({ message: "Query cannot be empty" });
+                }
+
                 const body = yield* HttpBody.json({
                     jsonrpc: "2.0",
                     id: 1,
@@ -98,6 +102,10 @@ export class Web extends Effect.Service<Web>()("services/web", {
             },
         ) =>
             Effect.gen(function* () {
+                if (url.trim().length === 0) {
+                    return yield* new WebFetchError({ message: "URL cannot be empty" });
+                }
+
                 const format = options?.format ?? "markdown";
                 const timeout = options?.timeout ?? 30000;
 
