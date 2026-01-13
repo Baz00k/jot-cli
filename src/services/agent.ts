@@ -14,7 +14,7 @@ import {
 import type { FilePatch } from "@/domain/vfs";
 import { Config } from "@/services/config";
 import { LLM, type ToolCallRecord } from "@/services/llm";
-import { Prompts } from "@/services/prompts";
+import { Prompts, type WriterContext } from "@/services/prompts";
 import { Session } from "@/services/session";
 import { VFS } from "@/services/vfs";
 import { Web } from "@/services/web";
@@ -164,6 +164,10 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     const userActionDeferred = yield* Ref.make<Deferred.Deferred<UserAction, UserCancel> | null>(null);
 
                     const lastFeedbackRef = yield* Ref.make<Option.Option<string>>(Option.none());
+                    const writerContextRef = yield* Ref.make<WriterContext>({
+                        filesRead: [],
+                        filesModified: [],
+                    });
 
                     const writer_tools = makeWriterTools(runtime);
                     const reviewer_tools = makeReviewerTools(runtime);
@@ -172,6 +176,37 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], {
                             discard: true,
                         });
+
+                    const extractContextFromToolCall = (
+                        name: string,
+                        input: unknown,
+                        output: unknown,
+                    ): Partial<WriterContext> => {
+                        if (name === "read_file" && typeof input === "object" && input !== null) {
+                            const filePath = (input as { filePath?: string }).filePath;
+                            if (filePath) {
+                                const summary =
+                                    typeof output === "string"
+                                        ? output
+                                              .split("\n")
+                                              .find((l) => l.trim())
+                                              ?.slice(0, 80)
+                                        : undefined;
+                                return { filesRead: [{ path: filePath, summary }] };
+                            }
+                        }
+                        if (
+                            (name === "write_file" || name === "edit_file") &&
+                            typeof input === "object" &&
+                            input !== null
+                        ) {
+                            const filePath = (input as { filePath?: string }).filePath;
+                            if (filePath) {
+                                return { filesModified: [filePath] };
+                            }
+                        }
+                        return {};
+                    };
 
                     const saveToolCall = (record: ToolCallRecord) => {
                         Runtime.runPromise(runtime)(
@@ -184,6 +219,25 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                         input: record.input,
                                         output: record.output,
                                     } as const),
+                                    Effect.suspend(() => {
+                                        const partial = extractContextFromToolCall(
+                                            record.name,
+                                            record.input,
+                                            record.output,
+                                        );
+                                        if (Object.keys(partial).length > 0) {
+                                            return Ref.update(writerContextRef, (ctx) => ({
+                                                filesRead: [...ctx.filesRead, ...(partial.filesRead ?? [])],
+                                                filesModified: [
+                                                    ...new Set([
+                                                        ...ctx.filesModified,
+                                                        ...(partial.filesModified ?? []),
+                                                    ]),
+                                                ],
+                                            }));
+                                        }
+                                        return Effect.void;
+                                    }),
                                 ],
                                 { discard: true },
                             ),
@@ -239,11 +293,13 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             const lastFeedback = yield* Ref.get(lastFeedbackRef);
                             const lastComments = yield* vfs.getComments();
+                            const previousContext = yield* Ref.get(writerContextRef);
 
                             const writerPrompt = writerTask.render({
                                 goal: options.prompt,
                                 latestComments: lastComments,
                                 latestFeedback: lastFeedback,
+                                previousContext: isRevision ? Option.some(previousContext) : Option.none(),
                             });
 
                             const { content: _writerOutput, cost: draftCost } = yield* llm
@@ -290,7 +346,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             yield* emitEvent({
                                 _tag: "DraftComplete",
-                                content: `Staged ${summary.fileCount} files.`,
+                                content: _writerOutput,
                                 cycle,
                             });
 

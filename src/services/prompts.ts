@@ -7,10 +7,21 @@ import { promptPaths } from "@/prompts";
 
 export type PromptType = keyof typeof promptPaths;
 
+export interface FileContext {
+    readonly path: string;
+    readonly summary?: string;
+}
+
+export interface WriterContext {
+    readonly filesRead: ReadonlyArray<FileContext>;
+    readonly filesModified: ReadonlyArray<string>;
+}
+
 export interface WriterTaskInput {
     readonly goal: string;
     readonly latestComments: Chunk.Chunk<ReviewComment>;
     readonly latestFeedback: Option.Option<string>;
+    readonly previousContext: Option.Option<WriterContext>;
 }
 
 export interface ReviewerTaskInput {
@@ -47,6 +58,28 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                     system: systemPrompt,
                     render: (input: WriterTaskInput): string => {
                         const parts = [`Task: ${input.goal}`];
+
+                        const previousContext = input.previousContext;
+                        if (Option.isSome(previousContext)) {
+                            const ctx = previousContext.value;
+                            parts.push("", "## Context from Previous Iterations");
+
+                            if (ctx.filesRead.length > 0) {
+                                parts.push("### Files Already Read");
+                                parts.push(
+                                    ctx.filesRead
+                                        .map((f) => (f.summary ? `- ${f.path}: ${f.summary}` : `- ${f.path}`))
+                                        .join("\n"),
+                                );
+                            }
+
+                            if (ctx.filesModified.length > 0) {
+                                parts.push("### Files You Modified (still staged)");
+                                parts.push(ctx.filesModified.map((f) => `- ${f}`).join("\n"));
+                            }
+
+                            parts.push("", "Use this context to avoid re-reading files unnecessarily.");
+                        }
 
                         const latestComments = input.latestComments;
                         if (Chunk.isNonEmpty(latestComments)) {
