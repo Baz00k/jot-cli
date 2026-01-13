@@ -74,6 +74,11 @@ export type AgentEvent =
           readonly _tag: "IterationLimitReached";
           readonly iterations: number;
           readonly lastDraft: string;
+      }
+    | {
+          readonly _tag: "StateUpdate";
+          readonly files: ReadonlyArray<string>;
+          readonly cost: number;
       };
 
 export interface RunOptions {
@@ -177,6 +182,17 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             discard: true,
                         });
 
+                    const broadcastState = () =>
+                        Effect.gen(function* () {
+                            const summary = yield* vfs.getSummary();
+                            const cost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
+                            yield* emitEvent({
+                                _tag: "StateUpdate",
+                                files: summary.files,
+                                cost,
+                            });
+                        });
+
                     const extractContextFromToolCall = (
                         name: string,
                         input: unknown,
@@ -225,18 +241,20 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                             record.input,
                                             record.output,
                                         );
-                                        if (Object.keys(partial).length > 0) {
-                                            return Ref.update(writerContextRef, (ctx) => ({
-                                                filesRead: [...ctx.filesRead, ...(partial.filesRead ?? [])],
-                                                filesModified: [
-                                                    ...new Set([
-                                                        ...ctx.filesModified,
-                                                        ...(partial.filesModified ?? []),
-                                                    ]),
-                                                ],
-                                            }));
-                                        }
-                                        return Effect.void;
+                                        const contextUpdate =
+                                            Object.keys(partial).length > 0
+                                                ? Ref.update(writerContextRef, (ctx) => ({
+                                                      filesRead: [...ctx.filesRead, ...(partial.filesRead ?? [])],
+                                                      filesModified: [
+                                                          ...new Set([
+                                                              ...ctx.filesModified,
+                                                              ...(partial.filesModified ?? []),
+                                                          ]),
+                                                      ],
+                                                  }))
+                                                : Effect.void;
+
+                                        return Effect.all([contextUpdate, broadcastState()], { discard: true });
                                     }),
                                 ],
                                 { discard: true },
@@ -339,6 +357,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 );
 
                             yield* sessionHandle.addCost(draftCost);
+                            yield* broadcastState();
 
                             const summary = yield* vfs.getSummary();
 
@@ -399,6 +418,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 );
 
                             yield* sessionHandle.addCost(reviewCost);
+                            yield* broadcastState();
 
                             const decision = yield* vfs.getDecision();
                             const comments = yield* vfs.getComments();
@@ -450,12 +470,6 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 yield* Ref.set(lastFeedbackRef, Option.some(userAction.comment ?? "Please revise."));
                                 return yield* step(cycle);
                             }
-
-                            yield* emitEvent({
-                                _tag: "Progress",
-                                message: "Applying approved changes to project files...",
-                                cycle,
-                            });
 
                             const flushedFiles = yield* vfs.flush();
 

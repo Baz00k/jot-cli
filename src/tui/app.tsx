@@ -6,6 +6,7 @@ import { StrictMode, useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
+import { Sidebar } from "@/tui/components/Sidebar";
 import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
@@ -64,20 +65,23 @@ function AgentWorkflow() {
         state.phase !== "cancelled";
 
     return (
-        <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
-            <Timeline
-                focused={!isDialogOpen && activeFocus === "timeline"}
-                onApprove={handleApprove}
-                onReject={handleReject}
-            />
+        <box style={{ width: "100%", height: "100%", flexDirection: "row" }}>
+            <box style={{ flexGrow: 1, flexDirection: "column" }}>
+                <Timeline
+                    focused={!isDialogOpen && activeFocus === "timeline"}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                />
 
-            <TaskInput
-                onTaskSubmit={handleTaskSubmit}
-                isRunning={isAgentRunning}
-                focused={!isDialogOpen && activeFocus === "input"}
-            />
+                <TaskInput
+                    onTaskSubmit={handleTaskSubmit}
+                    isRunning={isAgentRunning}
+                    focused={!isDialogOpen && activeFocus === "input"}
+                />
 
-            <StatusBar isRunning={isAgentRunning} disabled={isDialogOpen} />
+                <StatusBar isRunning={isAgentRunning} disabled={isDialogOpen} />
+            </box>
+            <Sidebar />
         </box>
     );
 }

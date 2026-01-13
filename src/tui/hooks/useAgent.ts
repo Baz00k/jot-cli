@@ -43,6 +43,7 @@ export interface AgentState {
         readonly lastDraft?: string;
     } | null;
     readonly totalCost: number;
+    readonly files: ReadonlyArray<string>;
     readonly sessionId: string | null;
 }
 
@@ -57,6 +58,7 @@ export const initialAgentState: AgentState = {
     result: null,
     error: null,
     totalCost: 0,
+    files: [],
     sessionId: null,
 };
 
@@ -101,7 +103,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
         cycle: "cycle" in event ? event.cycle : state.cycle,
     };
 
-    const timeline = [...state.timeline, entry];
+    const timeline = event._tag === "StateUpdate" ? state.timeline : [...state.timeline, entry];
 
     switch (event._tag) {
         case "Progress":
@@ -111,6 +113,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 cycle: event.cycle,
                 phase: inferPhaseFromProgress(event.message),
                 streamBuffer: "",
+                streamPhase: null,
             };
 
         case "StreamChunk":
@@ -135,6 +138,8 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 ...state,
                 timeline,
                 phase: event.approved ? "awaiting-user" : "drafting",
+                streamBuffer: "",
+                streamPhase: null,
             };
 
         case "UserActionRequired":
@@ -143,6 +148,8 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 timeline,
                 phase: "awaiting-user",
                 pendingAction: { diffs: event.diffs, cycle: event.cycle },
+                streamBuffer: "",
+                streamPhase: null,
             };
 
         case "IterationLimitReached":
@@ -155,6 +162,14 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                     canRetry: false,
                     lastDraft: event.lastDraft,
                 },
+                streamPhase: null,
+            };
+
+        case "StateUpdate":
+            return {
+                ...state,
+                files: event.files,
+                totalCost: event.cost,
             };
 
         case "ToolCall":
@@ -298,17 +313,8 @@ export function useAgent(
                 console.error("Failed to submit action:", error);
                 dispatch({ type: "ERROR", error: mapErrorToState(error) });
             });
-
-            dispatch({
-                type: "EVENT",
-                event: {
-                    _tag: "Progress",
-                    message: action.type === "approve" ? "Applying changes..." : "Revising...",
-                    cycle: state.cycle,
-                },
-            });
         },
-        [runtime, state.phase, state.cycle],
+        [runtime, state.phase],
     );
 
     const cancel = useCallback(() => {
