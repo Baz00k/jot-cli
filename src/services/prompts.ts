@@ -102,6 +102,7 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             "",
                             "Review these changes. Use add_review_comment for specific feedback.",
                             "Call approve_changes if correct, or reject_changes with a critique.",
+                            "As a last action, ALWAYS call either approve_changes or reject_changes.",
                         ].join("\n");
                     },
                 };
