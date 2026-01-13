@@ -13,7 +13,7 @@ export const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_ENDPOINT_DAILY = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_ENDPOINT_SANDBOX = "https://daily-cloudcode-pa.sandbox.googleapis.com";
 
-export const ANTIGRAVITY_DEFAULT_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY;
+export const ANTIGRAVITY_DEFAULT_ENDPOINT = ANTIGRAVITY_ENDPOINT_SANDBOX;
 export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
     ANTIGRAVITY_ENDPOINT_SANDBOX,
     ANTIGRAVITY_ENDPOINT_DAILY,

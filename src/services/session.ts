@@ -90,6 +90,7 @@ export interface SessionHandle {
     readonly getTotalCost: () => Effect.Effect<number>;
     readonly getToolCalls: () => Effect.Effect<Array<{ name: string; input: unknown; output: unknown }>>;
     readonly updateIterations: (iterations: number) => Effect.Effect<void>;
+    readonly getIterations: () => Effect.Effect<number>;
     readonly flush: () => Effect.Effect<void>;
     readonly close: () => Effect.Effect<void>;
 }
@@ -250,6 +251,8 @@ export class Session extends Effect.Service<Session>()("services/session", {
                                     }),
                             ),
 
+                        getIterations: () => Ref.get(stateRef).pipe(Effect.map((d) => d.iterations)),
+
                         flush: () => flush,
                         close: () => close,
                     };
@@ -299,19 +302,23 @@ export class Session extends Effect.Service<Session>()("services/session", {
 
 export const TestSession = new Session({
     create: () =>
-        Effect.succeed({
-            id: "test-session",
-            path: "/tmp/test-session.json",
-            addEntry: (_entry) => Effect.void,
-            addAgentEvent: (_event) => Effect.void,
-            addToolCall: (_name, _input, _output) => Effect.void,
-            updateStatus: (_status, _finalContent) => Effect.void,
-            addCost: (_cost) => Effect.void,
-            getTotalCost: () => Effect.succeed(0),
-            getToolCalls: () => Effect.succeed([]),
-            updateIterations: (_iterations) => Effect.void,
-            flush: () => Effect.void,
-            close: () => Effect.void,
+        Effect.gen(function* () {
+            const iterationsRef = yield* Ref.make(0);
+            return {
+                id: "test-session",
+                path: "/tmp/test-session.json",
+                addEntry: (_entry) => Effect.void,
+                addAgentEvent: (_event) => Effect.void,
+                addToolCall: (_name, _input, _output) => Effect.void,
+                updateStatus: (_status, _finalContent) => Effect.void,
+                addCost: (_cost) => Effect.void,
+                getTotalCost: () => Effect.succeed(0),
+                getToolCalls: () => Effect.succeed([]),
+                updateIterations: (i) => Ref.set(iterationsRef, i),
+                getIterations: () => Ref.get(iterationsRef),
+                flush: () => Effect.void,
+                close: () => Effect.void,
+            };
         }),
     list: () => Effect.succeed([]),
     get: () => Effect.succeed(null),

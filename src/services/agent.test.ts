@@ -145,7 +145,7 @@ describe("Agent Service", () => {
             const result = yield* runner.result.pipe(Effect.flip);
 
             expect(result._tag).toBe("MaxIterationsReached");
-            expect((result as MaxIterationsReached).iterations).toBe(2);
+            expect((result as MaxIterationsReached).iterations).toBe(3);
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
@@ -222,7 +222,7 @@ describe("Agent Service", () => {
             const agent = yield* Agent;
             const runner = yield* agent.run({ prompt: "Do work" });
 
-            const stateRef = yield* Ref.make<any | undefined>(undefined);
+            const stateRef = yield* Ref.make<{ cycle: number; totalCost: number } | undefined>(undefined);
 
             yield* Stream.runCollect(
                 runner.events.pipe(
@@ -247,7 +247,7 @@ describe("Agent Service", () => {
 
             const capturedState = yield* Ref.get(stateRef);
             expect(capturedState).toBeTruthy();
-            expect(capturedState?.workflowState.iterationCount).toBe(1);
+            expect(capturedState?.cycle).toBe(1);
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));

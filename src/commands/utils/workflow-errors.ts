@@ -1,14 +1,12 @@
-import { log, note } from "@clack/prompts";
+import { log } from "@clack/prompts";
 import { Effect, Match, Option } from "effect";
 import { AgentLoopError, AIGenerationError, MaxIterationsReached, UserCancel } from "@/domain/errors";
-import type { WorkflowState } from "@/domain/workflow";
-import { renderMarkdownSnippet } from "@/text/utils";
 
 /**
  * Represents the current state of a workflow, used for error recovery.
  */
 export interface WorkflowSnapshot {
-    readonly workflowState: WorkflowState;
+    readonly cycle: number;
     readonly totalCost: number;
 }
 
@@ -48,15 +46,14 @@ export const displayError = (error: unknown): Effect.Effect<void> =>
 
 /**
  * Displays the last draft if available.
+ *
+ * Since the agent now stages files in VFS instead of producing a single text draft,
+ * we cannot easily "save the draft" from a snapshot. This function remains for API compatibility
+ * but always returns None.
  */
-export const displayLastDraft = (snapshot: WorkflowSnapshot): Effect.Effect<Option.Option<string>> =>
-    Effect.gen(function* () {
-        const lastDraft = Option.getOrUndefined(snapshot.workflowState.latestDraft);
-        if (lastDraft && lastDraft.trim().length > 0) {
-            yield* Effect.sync(() => note(renderMarkdownSnippet(lastDraft), "Last Draft Before Error"));
-            return Option.some(lastDraft);
-        }
-        yield* Effect.sync(() => log.info("No draft was available to save."));
+export const displayLastDraft = (_snapshot: WorkflowSnapshot): Effect.Effect<Option.Option<string>> =>
+    Effect.sync(() => {
+        log.info("Draft recovery is not supported in the new VFS architecture.");
         return Option.none();
     });
 
@@ -66,8 +63,8 @@ export const displayLastDraft = (snapshot: WorkflowSnapshot): Effect.Effect<Opti
 export const displaySaveSuccess = (savedPath: string, snapshot: WorkflowSnapshot): Effect.Effect<void> =>
     Effect.sync(() => {
         log.success(`Draft saved to: ${savedPath}`);
-        if (snapshot.workflowState.iterationCount > 0) {
-            log.info(`Completed ${snapshot.workflowState.iterationCount} iteration(s)`);
+        if (snapshot.cycle > 0) {
+            log.info(`Completed ${snapshot.cycle} iteration(s)`);
         }
         if (snapshot.totalCost > 0) {
             log.info(`Total cost: $${snapshot.totalCost.toFixed(6)}`);
@@ -101,3 +98,10 @@ export const rethrow = (error: UserCancel): ErrorHandlingResult => ({
     _tag: "Rethrow",
     error,
 });
+
+export class WorkflowErrorHandled {
+    readonly savedPath?: string;
+    constructor(props: { savedPath?: string }) {
+        this.savedPath = props.savedPath;
+    }
+}

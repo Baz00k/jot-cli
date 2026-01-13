@@ -1,5 +1,6 @@
 import { Effect, Fiber, type ManagedRuntime, Stream } from "effect";
 import { useCallback, useEffect, useReducer, useRef } from "react";
+import type { FilePatch } from "@/domain/vfs";
 import { Agent, type AgentEvent, type RunOptions, type RunResult, type UserAction } from "@/services/agent";
 import type { Config } from "@/services/config";
 
@@ -22,7 +23,7 @@ export interface TimelineEntry {
 }
 
 export interface PendingUserAction {
-    readonly draft: string;
+    readonly diffs: ReadonlyArray<FilePatch>;
     readonly cycle: number;
 }
 
@@ -141,7 +142,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 ...state,
                 timeline,
                 phase: "awaiting-user",
-                pendingAction: { draft: event.draft, cycle: event.cycle },
+                pendingAction: { diffs: event.diffs, cycle: event.cycle },
             };
 
         case "IterationLimitReached":

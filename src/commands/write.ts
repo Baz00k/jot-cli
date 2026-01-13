@@ -2,7 +2,7 @@ import { cancel, intro, isCancel, log, note, outro, select, spinner, text } from
 import { Args, Command, Options } from "@effect/cli";
 import { FileSystem, Path } from "@effect/platform";
 import { BunContext } from "@effect/platform-bun";
-import { Effect, Fiber, Option, Stream } from "effect";
+import { Chunk, Effect, Fiber, Option, Stream } from "effect";
 import {
     displayError,
     displayLastDraft,
@@ -12,6 +12,7 @@ import {
 } from "@/commands/utils/workflow-errors";
 import { UserCancel, WorkflowErrorHandled } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
+import type { FilePatch } from "@/domain/vfs";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
@@ -43,31 +44,48 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
         ),
     );
 
+const formatDiffs = (diffs: ReadonlyArray<FilePatch>): string => {
+    if (diffs.length === 0) return "No changes.";
+    return diffs
+        .map((patch) => {
+            const status = patch.isNew ? " (New)" : patch.isDeleted ? " (Deleted)" : "";
+            const hunks = Chunk.toArray(patch.hunks)
+                .map((h) => h.content)
+                .join("\n");
+            return `=== ${patch.path}${status} ===\n${hunks}`;
+        })
+        .join("\n\n");
+};
+
 /**
  * Handle user feedback when AI review approves the draft.
  * Returns the user's decision to approve or request changes.
  */
-const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction, UserCancel | Error> =>
+const getUserFeedback = (
+    diffs: ReadonlyArray<FilePatch>,
+    cycle: number,
+): Effect.Effect<UserAction, UserCancel | Error> =>
     Effect.gen(function* () {
-        yield* Effect.sync(() => note(renderMarkdownSnippet(draft), `Draft (Cycle ${cycle}) - Preview`));
+        const diffText = formatDiffs(diffs);
+        yield* Effect.sync(() => note(renderMarkdownSnippet(diffText), `Changes (Cycle ${cycle})`));
 
         const action = yield* runPrompt(() =>
             select({
-                message: "AI review approved this draft. What would you like to do?",
+                message: "AI review approved these changes. What would you like to do?",
                 options: [
                     { value: "approve", label: "Approve and finalize" },
                     { value: "reject", label: "Request changes" },
-                    { value: "view", label: "View full draft" },
+                    { value: "view", label: "View full diffs" },
                 ],
             }),
         );
 
         if (action === "view") {
-            yield* Effect.sync(() => note(renderMarkdown(draft), "Full Draft"));
+            yield* Effect.sync(() => note(renderMarkdownSnippet(diffText), "Full Diffs"));
             // Re-prompt after viewing
             const finalAction = yield* runPrompt(() =>
                 select({
-                    message: "What would you like to do with this draft?",
+                    message: "What would you like to do with these changes?",
                     options: [
                         { value: "approve", label: "Approve and finalize" },
                         { value: "reject", label: "Request changes" },
@@ -79,7 +97,7 @@ const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction
                 const comment = yield* runPrompt(() =>
                     text({
                         message: "What changes would you like?",
-                        placeholder: "e.g., Make the tone more formal, add more examples...",
+                        placeholder: "e.g., Fix the typo in the header, rename the variable...",
                     }),
                 );
                 return { type: "reject" as const, comment };
@@ -298,7 +316,7 @@ export const writeCommand = Command.make(
                         case "UserActionRequired": {
                             yield* Effect.sync(() => s.stop("Awaiting your review..."));
 
-                            const userAction = yield* getUserFeedback(event.draft, event.cycle);
+                            const userAction = yield* getUserFeedback(event.diffs, event.cycle);
 
                             yield* agentSession.submitUserAction(userAction);
 

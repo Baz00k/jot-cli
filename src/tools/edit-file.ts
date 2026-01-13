@@ -15,7 +15,7 @@ import {
     WhitespaceNormalizedReplacer,
 } from "@/text/replacers";
 
-function replace(
+export function replace(
     content: string,
     oldString: string,
     newString: string,

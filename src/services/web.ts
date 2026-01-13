@@ -1,5 +1,5 @@
 import { FetchHttpClient, HttpBody, HttpClient } from "@effect/platform";
-import { Effect, Match } from "effect";
+import { Effect, Layer, Match } from "effect";
 import { WebFetchError, WebSearchError } from "@/domain/errors";
 import { convertHTMLToMarkdown } from "@/text/converters/html-markdown-converter";
 import { extractTextFromHTML } from "@/text/converters/html-text-extractor";
@@ -154,3 +154,10 @@ export class Web extends Effect.Service<Web>()("services/web", {
     }),
     dependencies: [FetchHttpClient.layer],
 }) {}
+
+export const TestWeb = new Web({
+    search: () => Effect.succeed(""),
+    fetch: () => Effect.succeed(""),
+});
+
+export const TestWebLayer = Layer.succeed(Web, TestWeb);
