@@ -23,6 +23,8 @@ export const makeWriterTools = (runtime: Runtime.Runtime<VFS>) =>
     ({
         list_files: listFilesTool,
         search_files: searchFilesTool,
+        read_all_diffs: makeReadAllDiffsTool(runtime),
+        read_file_diff: makeReadFileDiffTool(runtime),
         read_file: makeVfsReadFileTool(runtime),
         write_file: makeVfsWriteFileTool(runtime),
         edit_file: makeVfsEditFileTool(runtime),
@@ -38,4 +40,6 @@ export const makeReviewerTools = (runtime: Runtime.Runtime<VFS>) =>
         add_review_comment: makeAddReviewCommentTool(runtime),
         approve_changes: makeApproveChangesTool(runtime),
         reject_changes: makeRejectChangesTool(runtime),
+        web_fetch: webFetchTool,
+        web_search: webSearchTool,
     }) satisfies ToolSet;
