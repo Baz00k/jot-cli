@@ -1,10 +1,15 @@
 import { jsonSchema, tool } from "ai";
+import dedent from "dedent";
 import { Effect, JSONSchema, Runtime, Schema } from "effect";
 import { VFS } from "@/services/vfs";
 
 export const makeVfsWriteFileTool = (runtime: Runtime.Runtime<VFS>) =>
     tool({
-        description: "Write content to a file (staged in VFS, not applied to disk until approved).",
+        description: dedent`
+            Write content to a file (staged in VFS, not applied to disk until approved).
+            Use this tool if you want to create a new file or fully overwrite an existing one.
+            If you wish to edit an existing file, use the 'edit-file' tool instead.
+        `,
         inputSchema: jsonSchema<{ filePath: string; content: string; overwrite?: boolean }>(
             JSONSchema.make(
                 Schema.Struct({
