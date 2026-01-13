@@ -36,7 +36,7 @@ describe("VFS Service", () => {
             const content1 = yield* vfs.readFile("disk.txt");
             expect(content1).toBe("disk content");
 
-            yield* vfs.writeFile("disk.txt", "staged content");
+            yield* vfs.writeFile("disk.txt", "staged content", true);
 
             const content2 = yield* vfs.readFile("disk.txt");
             expect(content2).toBe("staged content");
@@ -92,7 +92,7 @@ describe("VFS Service", () => {
             const projectFiles = yield* ProjectFiles;
 
             yield* projectFiles.writeFile("test.txt", "original");
-            yield* vfs.writeFile("test.txt", "new");
+            yield* vfs.writeFile("test.txt", "new", true);
             yield* vfs.writeFile("new.txt", "created");
 
             yield* vfs.flush();

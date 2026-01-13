@@ -55,12 +55,18 @@ export class VFS extends Effect.Service<VFS>()("services/vfs", {
             });
 
         return {
-            writeFile: (path: string, content: string) =>
+            writeFile: (path: string, content: string, overwrite = false) =>
                 Effect.gen(function* () {
                     const original = yield* projectFiles.readFile(path, { disableExcerpts: true }).pipe(
                         Effect.map(Option.some),
                         Effect.catchTag("FileReadError", () => Effect.succeed(Option.none())),
                     );
+
+                    if (!overwrite && Option.isSome(original)) {
+                        return yield* new VFSError({
+                            message: `File ${path} already exists. Set overwrite to true if you intended to replace it.`,
+                        });
+                    }
 
                     yield* Ref.update(
                         stateRef,

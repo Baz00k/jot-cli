@@ -5,17 +5,22 @@ import { VFS } from "@/services/vfs";
 export const makeVfsWriteFileTool = (runtime: Runtime.Runtime<VFS>) =>
     tool({
         description: "Write content to a file (staged in VFS, not applied to disk until approved).",
-        inputSchema: jsonSchema<{ filePath: string; content: string }>(
+        inputSchema: jsonSchema<{ filePath: string; content: string; overwrite?: boolean }>(
             JSONSchema.make(
                 Schema.Struct({
                     filePath: Schema.String.annotations({ description: "The path to the file to write" }),
                     content: Schema.String.annotations({ description: "The content to write" }),
+                    overwrite: Schema.optional(
+                        Schema.Boolean.annotations({
+                            description: "Whether to overwrite the file if it already exists. Use with caution!",
+                        }),
+                    ),
                 }),
             ),
         ),
-        execute: async ({ filePath, content }) => {
+        execute: async ({ filePath, content, overwrite = false }) => {
             return Runtime.runPromise(runtime)(
-                VFS.writeFile(filePath, content).pipe(
+                VFS.writeFile(filePath, content, overwrite).pipe(
                     Effect.map(() => `Successfully wrote to ${filePath}. Staged in VFS.`),
                     Effect.catchAll((error) => Effect.succeed(`Error writing to ${filePath}: ${error.message}`)),
                 ),
