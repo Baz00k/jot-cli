@@ -1,3 +1,5 @@
+import type { PlatformError } from "@effect/platform/Error";
+import { Chunk, Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import {
     AgentLoopError,
@@ -17,8 +19,6 @@ import { Session, type SessionHandle } from "@/services/session";
 import { VFS } from "@/services/vfs";
 import { Web } from "@/services/web";
 import { makeReviewerTools, makeWriterTools } from "@/tools";
-import type { PlatformError } from "@effect/platform/Error";
-import { Chunk, Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
@@ -200,6 +200,50 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             startCycle = sessionData.iterations;
                             if (sessionData.status === "failed") {
                                 startCycle = Math.max(0, startCycle - 1);
+                            }
+
+                            let replayCycle = 0;
+                            for (const entry of sessionData.entries) {
+                                if (
+                                    entry._tag === "AgentEvent" &&
+                                    typeof entry.event === "object" &&
+                                    entry.event !== null &&
+                                    "cycle" in entry.event
+                                ) {
+                                    replayCycle = (entry.event as { cycle: number }).cycle;
+                                }
+
+                                if (entry._tag === "ToolCall" && replayCycle <= startCycle) {
+                                    if (entry.name === "write_file") {
+                                        const input = entry.input as { filePath: string; content: string };
+                                        if (input?.filePath && typeof input.content === "string") {
+                                            yield* vfs
+                                                .writeFile(input.filePath, input.content, true)
+                                                .pipe(Effect.ignore);
+                                        }
+                                    } else if (entry.name === "edit_file") {
+                                        const input = entry.input as {
+                                            filePath: string;
+                                            oldString: string;
+                                            newString: string;
+                                            replaceAll?: boolean;
+                                        };
+                                        if (
+                                            input?.filePath &&
+                                            typeof input.oldString === "string" &&
+                                            typeof input.newString === "string"
+                                        ) {
+                                            yield* vfs
+                                                .editFile(
+                                                    input.filePath,
+                                                    input.oldString,
+                                                    input.newString,
+                                                    input.replaceAll ?? false,
+                                                )
+                                                .pipe(Effect.ignore);
+                                        }
+                                    }
+                                }
                             }
 
                             const promptEntry = sessionData.entries.find((e) => e._tag === "UserInput") as
@@ -557,7 +601,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             return `Applied ${flushedFiles.length} file(s): ${flushedFiles.join(", ")}`;
                         });
 
-                    const workflowFiber = yield* step(0).pipe(
+                    const workflowFiber = yield* step(startCycle).pipe(
                         Effect.tap((content) => sessionHandle.updateStatus("completed", content)),
                         Effect.tapError((error) =>
                             Effect.gen(function* () {
