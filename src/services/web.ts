@@ -1,9 +1,10 @@
+import { FetchHttpClient, HttpBody, HttpClient } from "@effect/platform";
+import { Effect, Layer, Match } from "effect";
+import { extractText } from "unpdf";
 import { MAX_WEB_FETCH_BYTES, MAX_WEB_FETCH_CHARS } from "@/domain/constants";
 import { WebFetchError, WebSearchError } from "@/domain/errors";
 import { convertHTMLToMarkdown } from "@/text/converters/html-markdown-converter";
 import { extractTextFromHTML } from "@/text/converters/html-text-extractor";
-import { FetchHttpClient, HttpBody, HttpClient } from "@effect/platform";
-import { Effect, Layer, Match } from "effect";
 
 const API_CONFIG = {
     ENDPOINT: "https://mcp.exa.ai/mcp",
@@ -15,7 +16,6 @@ const API_CONFIG = {
 } as const;
 
 const BINARY_CONTENT_TYPES = [
-    "application/pdf",
     "application/octet-stream",
     "application/zip",
     "application/gzip",
@@ -30,10 +30,23 @@ const BINARY_CONTENT_TYPES = [
     "video/",
 ] as const;
 
-const isLikelyBinary = (contentType: string | undefined): boolean => {
-    if (!contentType) return false;
-    const normalized = contentType.toLowerCase().split(";").at(0)?.trim();
-    return BINARY_CONTENT_TYPES.some((pattern) => normalized?.startsWith(pattern));
+type ContentType = "pdf" | "binary" | "text";
+
+const detectContentType = (contentType: string | undefined, url: string): ContentType => {
+    const normalizedType = contentType?.toLowerCase().split(";").at(0)?.trim() ?? "";
+    const lowerUrl = url.toLowerCase();
+
+    return Match.value({ type: normalizedType, url: lowerUrl }).pipe(
+        Match.when(
+            ({ type, url }) => type.includes("application/pdf") || url.endsWith(".pdf"),
+            () => "pdf" as const,
+        ),
+        Match.when(
+            ({ type }) => BINARY_CONTENT_TYPES.some((pattern) => type.startsWith(pattern)),
+            () => "binary" as const,
+        ),
+        Match.orElse(() => "text" as const),
+    );
 };
 
 const truncateOutput = (text: string, maxChars = MAX_WEB_FETCH_CHARS): string => {
@@ -167,14 +180,6 @@ export class Web extends Effect.Service<Web>()("services/web", {
                         ),
                     );
 
-                const contentType = response.headers?.["content-type"];
-
-                if (isLikelyBinary(contentType)) {
-                    return yield* new WebFetchError({
-                        message: `Cannot fetch binary content (${contentType ?? "unknown"}).`,
-                    });
-                }
-
                 const contentLength = response.headers?.["content-length"];
                 if (contentLength && parseInt(contentLength, 10) > MAX_WEB_FETCH_BYTES) {
                     return yield* new WebFetchError({
@@ -182,22 +187,66 @@ export class Web extends Effect.Service<Web>()("services/web", {
                     });
                 }
 
-                const responseText = yield* response.text.pipe(
-                    Effect.mapError(
-                        (error) => new WebFetchError({ message: `Failed to read response: ${error}`, cause: error }),
+                const contentType = detectContentType(response.headers?.["content-type"], url);
+
+                return yield* Match.value(contentType).pipe(
+                    Match.when("pdf", () =>
+                        Effect.gen(function* () {
+                            const buffer = yield* response.arrayBuffer.pipe(
+                                Effect.mapError(
+                                    (error) =>
+                                        new WebFetchError({
+                                            message: `Failed to read PDF response: ${error}`,
+                                            cause: error,
+                                        }),
+                                ),
+                            );
+                            const result = yield* Effect.tryPromise({
+                                try: () => extractText(new Uint8Array(buffer)),
+                                catch: (error) =>
+                                    new WebFetchError({ message: `Failed to parse PDF: ${error}`, cause: error }),
+                            });
+                            const text = Array.isArray(result.text) ? result.text.join("\n") : result.text;
+                            return truncateOutput(text);
+                        }),
                     ),
+                    Match.when(
+                        "binary",
+                        () =>
+                            new WebFetchError({
+                                message: `Cannot fetch binary content (${response.headers?.["content-type"] ?? "unknown"}).`,
+                            }),
+                    ),
+                    Match.when("text", () =>
+                        Effect.gen(function* () {
+                            const responseText = yield* response.text.pipe(
+                                Effect.mapError(
+                                    (error) =>
+                                        new WebFetchError({
+                                            message: `Failed to read response: ${error}`,
+                                            cause: error,
+                                        }),
+                                ),
+                            );
+
+                            let result: string;
+                            if (format === "html") {
+                                result = responseText;
+                            } else if (format === "text") {
+                                result = yield* extractTextFromHTML(responseText).pipe(
+                                    Effect.tapError(Effect.logWarning),
+                                );
+                            } else {
+                                result = yield* convertHTMLToMarkdown(responseText).pipe(
+                                    Effect.tapError(Effect.logWarning),
+                                );
+                            }
+
+                            return truncateOutput(result);
+                        }),
+                    ),
+                    Match.exhaustive,
                 );
-
-                let result: string;
-                if (format === "html") {
-                    result = responseText;
-                } else if (format === "text") {
-                    result = yield* extractTextFromHTML(responseText).pipe(Effect.tapError(Effect.logWarning));
-                } else {
-                    result = yield* convertHTMLToMarkdown(responseText).pipe(Effect.tapError(Effect.logWarning));
-                }
-
-                return truncateOutput(result);
             });
 
         return { search, fetch };
