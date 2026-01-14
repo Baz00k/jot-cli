@@ -1,5 +1,3 @@
-import type { PlatformError } from "@effect/platform/Error";
-import { Chunk, Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import {
     AgentLoopError,
@@ -15,10 +13,12 @@ import type { FilePatch } from "@/domain/vfs";
 import { Config } from "@/services/config";
 import { LLM, type ToolCallRecord } from "@/services/llm";
 import { Prompts, type WriterContext } from "@/services/prompts";
-import { Session } from "@/services/session";
+import { Session, type SessionHandle } from "@/services/session";
 import { VFS } from "@/services/vfs";
 import { Web } from "@/services/web";
 import { makeReviewerTools, makeWriterTools } from "@/tools";
+import type { PlatformError } from "@effect/platform/Error";
+import { Chunk, Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
@@ -82,7 +82,8 @@ export type AgentEvent =
       };
 
 export interface RunOptions {
-    readonly prompt: string;
+    readonly prompt?: string;
+    readonly sessionId?: string;
     readonly modelWriter?: string;
     readonly modelReviewer?: string;
     readonly reasoning?: boolean;
@@ -116,6 +117,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             reviewer: options.modelReviewer,
                             reasoning: options.reasoning,
                             maxIterations: options.maxIterations,
+                            sessionId: options.sessionId,
                         }),
                     );
 
@@ -141,57 +143,16 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                     const writerModelName = options.modelWriter ?? DEFAULT_MODEL_WRITER;
                     const reviewerModelName = options.modelReviewer ?? DEFAULT_MODEL_REVIEWER;
-                    const sessionHandle = yield* session
-                        .create({
-                            prompt: options.prompt,
-                            modelWriter: writerModelName,
-                            modelReviewer: reviewerModelName,
-                            reasoning,
-                            reasoningEffort,
-                            maxIterations,
-                        })
-                        .pipe(
-                            Effect.mapError(
-                                (error) =>
-                                    new AgentStreamError({
-                                        cause: error,
-                                        message: "message" in error ? error.message : "Failed to create session",
-                                    }),
-                            ),
-                        );
 
-                    yield* Effect.logDebug(`Session created: ${sessionHandle.id}`);
+                    let sessionHandle: SessionHandle;
+                    let initialPrompt = options.prompt ?? "";
+                    let startCycle = 0;
 
-                    const writerTask = yield* prompts.getWriterTask;
-                    const reviewerTask = yield* prompts.getReviewerTask;
-
-                    const eventQueue = yield* Queue.unbounded<AgentEvent>();
-                    const userActionDeferred = yield* Ref.make<Deferred.Deferred<UserAction, UserCancel> | null>(null);
-
-                    const lastFeedbackRef = yield* Ref.make<Option.Option<string>>(Option.none());
-                    const writerContextRef = yield* Ref.make<WriterContext>({
+                    let initialContext: WriterContext = {
                         filesRead: [],
                         filesModified: [],
-                    });
-
-                    const writer_tools = makeWriterTools(runtime);
-                    const reviewer_tools = makeReviewerTools(runtime);
-
-                    const emitEvent = (event: AgentEvent) =>
-                        Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], {
-                            discard: true,
-                        });
-
-                    const broadcastState = () =>
-                        Effect.gen(function* () {
-                            const summary = yield* vfs.getSummary();
-                            const cost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
-                            yield* emitEvent({
-                                _tag: "StateUpdate",
-                                files: summary.files,
-                                cost,
-                            });
-                        });
+                    };
+                    let initialFeedback: Option.Option<string> = Option.none();
 
                     const extractContextFromToolCall = (
                         name: string,
@@ -223,6 +184,126 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         }
                         return {};
                     };
+
+                    if (options.sessionId) {
+                        sessionHandle = yield* session.resume(options.sessionId).pipe(
+                            Effect.mapError(
+                                (error) =>
+                                    new AgentStreamError({
+                                        cause: error,
+                                        message: "message" in error ? error.message : "Failed to resume session",
+                                    }),
+                            ),
+                        );
+                        const sessionData = yield* session.get(options.sessionId);
+                        if (sessionData) {
+                            startCycle = sessionData.iterations;
+                            if (sessionData.status === "failed") {
+                                startCycle = Math.max(0, startCycle - 1);
+                            }
+
+                            const promptEntry = sessionData.entries.find((e) => e._tag === "UserInput") as
+                                | { prompt: string }
+                                | undefined;
+                            if (promptEntry) {
+                                initialPrompt = promptEntry.prompt;
+                            }
+
+                            for (const entry of sessionData.entries) {
+                                if (entry._tag === "ToolCall") {
+                                    const partial = extractContextFromToolCall(entry.name, entry.input, entry.output);
+                                    initialContext = {
+                                        filesRead: [...initialContext.filesRead, ...(partial.filesRead ?? [])],
+                                        filesModified: [
+                                            ...initialContext.filesModified,
+                                            ...(partial.filesModified ?? []),
+                                        ],
+                                    };
+                                }
+                                if (
+                                    entry._tag === "AgentEvent" &&
+                                    typeof entry.event === "object" &&
+                                    entry.event !== null
+                                ) {
+                                    const evt = entry.event as AgentEvent;
+                                    if (evt._tag === "ReviewComplete") {
+                                        if (!evt.approved) {
+                                            initialFeedback = Option.some(evt.critique);
+                                        } else {
+                                            initialFeedback = Option.none();
+                                        }
+                                    }
+                                    if (evt._tag === "UserInput") {
+                                        if (evt.content.startsWith("Rejected:")) {
+                                            initialFeedback = Option.some(evt.content.replace("Rejected: ", ""));
+                                        } else if (evt.content === "Approved") {
+                                            initialFeedback = Option.none();
+                                        }
+                                    }
+                                }
+                            }
+                            initialContext = {
+                                ...initialContext,
+                                filesModified: [...new Set(initialContext.filesModified)],
+                            };
+                        }
+                    } else {
+                        if (!options.prompt) {
+                            return yield* new AgentStreamError({
+                                message: "Prompt is required for new sessions",
+                                cause: new Error("Missing prompt"),
+                            });
+                        }
+                        initialPrompt = options.prompt;
+                        sessionHandle = yield* session
+                            .create({
+                                prompt: options.prompt,
+                                modelWriter: writerModelName,
+                                modelReviewer: reviewerModelName,
+                                reasoning,
+                                reasoningEffort,
+                                maxIterations,
+                            })
+                            .pipe(
+                                Effect.mapError(
+                                    (error) =>
+                                        new AgentStreamError({
+                                            cause: error,
+                                            message: "message" in error ? error.message : "Failed to create session",
+                                        }),
+                                ),
+                            );
+                    }
+
+                    yield* Effect.logDebug(`Session ID: ${sessionHandle.id}, Cycle: ${startCycle}`);
+
+                    const writerTask = yield* prompts.getWriterTask;
+                    const reviewerTask = yield* prompts.getReviewerTask;
+
+                    const eventQueue = yield* Queue.unbounded<AgentEvent>();
+                    const userActionDeferred = yield* Ref.make<Deferred.Deferred<UserAction, UserCancel> | null>(null);
+
+                    const lastFeedbackRef = yield* Ref.make<Option.Option<string>>(initialFeedback);
+                    const writerContextRef = yield* Ref.make<WriterContext>(initialContext);
+
+                    const writer_tools = makeWriterTools(runtime);
+                    const reviewer_tools = makeReviewerTools(runtime);
+
+                    const emitEvent = (event: AgentEvent) =>
+                        Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], {
+                            discard: true,
+                        });
+
+                    const broadcastState = () =>
+                        Effect.gen(function* () {
+                            const summary = yield* vfs.getSummary();
+                            const cost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
+                            yield* emitEvent({
+                                _tag: "StateUpdate",
+                                files: summary.files,
+                                cost,
+                            });
+                        });
 
                     const saveToolCall = (record: ToolCallRecord) => {
                         Runtime.runPromise(runtime)(
@@ -314,7 +395,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                             const previousContext = yield* Ref.get(writerContextRef);
 
                             const writerPrompt = writerTask.render({
-                                goal: options.prompt,
+                                goal: initialPrompt,
                                 latestComments: lastComments,
                                 latestFeedback: lastFeedback,
                                 previousContext: isRevision ? Option.some(previousContext) : Option.none(),
@@ -377,7 +458,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             const diffs = yield* vfs.getDiffs();
                             const reviewPrompt = reviewerTask.render({
-                                goal: options.prompt,
+                                goal: initialPrompt,
                                 diffs,
                             });
 

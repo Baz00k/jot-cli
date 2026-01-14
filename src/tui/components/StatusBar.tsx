@@ -1,4 +1,5 @@
 import { useKeyboard } from "@opentui/react";
+import { useAgentContext } from "@/tui/context/AgentContext";
 import { useConfigContext } from "@/tui/context/ConfigContext";
 import { useRenderer } from "@/tui/context/RendererContext";
 
@@ -10,9 +11,15 @@ export interface StatusBarProps {
 export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
     const { config } = useConfigContext();
     const renderer = useRenderer();
+    const { state, retry } = useAgentContext();
 
     useKeyboard((key) => {
         if (disabled) return;
+
+        if (state.error && key.name === "r") {
+            retry();
+            return;
+        }
 
         if (key.name === "escape") {
             // Reset window title before destroying renderer
@@ -35,7 +42,7 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
                 minHeight: 3,
             }}
         >
-            <text>Esc: Exit | F2: Settings</text>
+            <text>Esc: Exit | F2: Settings{state.error ? " | R: Retry" : ""}</text>
             <text>
                 W: {writer} | R: {reviewer}
             </text>
