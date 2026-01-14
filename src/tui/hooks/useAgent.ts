@@ -1,5 +1,5 @@
 import { Effect, Fiber, type ManagedRuntime, Stream } from "effect";
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { FilePatch } from "@/domain/vfs";
 import { Agent, type AgentEvent, type RunOptions, type RunResult, type UserAction } from "@/services/agent";
 import type { Config } from "@/services/config";
@@ -70,6 +70,7 @@ export interface UseAgentOptions {
 export interface UseAgentReturn {
     readonly state: AgentState;
     readonly start: (options: RunOptions) => void;
+    readonly retry: () => void;
     readonly submitAction: (action: UserAction) => void;
     readonly cancel: () => void;
     readonly reset: () => void;
@@ -228,35 +229,48 @@ function mapErrorToState(error: unknown): AgentState["error"] {
     };
 }
 
+// Global state container
+let globalState: AgentState = { ...initialAgentState };
+const listeners = new Set<() => void>();
+
+let globalSession: {
+    submitUserAction: (action: UserAction) => Effect.Effect<void, unknown>;
+    cancel: () => Effect.Effect<void>;
+    fiber: Fiber.RuntimeFiber<void, unknown> | null;
+} | null = null;
+
+let globalLastRunOptions: RunOptions | null = null;
+
+function dispatch(action: AgentAction) {
+    globalState = agentReducer(globalState, action);
+    for (const listener of listeners) {
+        listener();
+    }
+}
+
 export function useAgent(
     runtime: ManagedRuntime.ManagedRuntime<Agent | Config, unknown>,
     options: UseAgentOptions = {},
 ): UseAgentReturn {
-    const [state, dispatch] = useReducer(agentReducer, initialAgentState);
+    const subscribe = useCallback((listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+    }, []);
 
-    const sessionRef = useRef<{
-        submitUserAction: (action: UserAction) => Effect.Effect<void, unknown>;
-        cancel: () => Effect.Effect<void>;
-        fiber: Fiber.RuntimeFiber<void, unknown> | null;
-    } | null>(null);
+    const getSnapshot = useCallback(() => globalState, []);
 
-    useEffect(() => {
-        return () => {
-            if (sessionRef.current) {
-                void runtime.runPromise(sessionRef.current.cancel());
-            }
-        };
-    }, [runtime]);
+    const state = useSyncExternalStore(subscribe, getSnapshot);
 
     const start = useCallback(
         (runOptions: RunOptions) => {
+            globalLastRunOptions = runOptions;
             const program = Effect.gen(function* () {
                 const agent = yield* Agent;
                 const session = yield* agent.run(runOptions);
 
                 dispatch({ type: "START", sessionId: session.sessionId });
 
-                sessionRef.current = {
+                globalSession = {
                     submitUserAction: session.submitUserAction,
                     cancel: session.cancel,
                     fiber: null,
@@ -267,8 +281,8 @@ export function useAgent(
                     Effect.fork,
                 );
 
-                if (sessionRef.current) {
-                    sessionRef.current.fiber = eventFiber;
+                if (globalSession) {
+                    globalSession.fiber = eventFiber;
                 }
 
                 const result = yield* session.result;
@@ -305,11 +319,20 @@ export function useAgent(
         [runtime, options.onComplete, options.onError],
     );
 
+    const retry = useCallback(() => {
+        if (!state.error || !state.sessionId || !globalLastRunOptions) return;
+
+        start({
+            ...globalLastRunOptions,
+            sessionId: state.sessionId,
+        });
+    }, [state.error, state.sessionId, start]);
+
     const submitAction = useCallback(
         (action: UserAction) => {
-            if (!sessionRef.current || state.phase !== "awaiting-user") return;
+            if (!globalSession || state.phase !== "awaiting-user") return;
 
-            runtime.runPromise(sessionRef.current.submitUserAction(action)).catch((error) => {
+            runtime.runPromise(globalSession.submitUserAction(action)).catch((error) => {
                 console.error("Failed to submit action:", error);
                 dispatch({ type: "ERROR", error: mapErrorToState(error) });
             });
@@ -318,10 +341,10 @@ export function useAgent(
     );
 
     const cancel = useCallback(() => {
-        if (!sessionRef.current) return;
+        if (!globalSession) return;
 
         runtime
-            .runPromise(sessionRef.current.cancel())
+            .runPromise(globalSession.cancel())
             .then(() => dispatch({ type: "CANCEL" }))
             .catch((error) => {
                 console.error("Failed to cancel:", error);
@@ -330,13 +353,15 @@ export function useAgent(
     }, [runtime]);
 
     const reset = useCallback(() => {
-        sessionRef.current = null;
+        globalSession = null;
+        globalLastRunOptions = null;
         dispatch({ type: "RESET" });
     }, []);
 
     return {
         state,
         start,
+        retry,
         submitAction,
         cancel,
         reset,
