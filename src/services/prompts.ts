@@ -57,7 +57,16 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                 return {
                     system: systemPrompt,
                     render: (input: WriterTaskInput): string => {
-                        const parts = [`Task: ${input.goal}`];
+                        const parts = [
+                            "# Task",
+                            "",
+                            input.goal,
+                            "",
+                            "## Environment details",
+                            `Current Date: ${new Date().toDateString()}`,
+                            `Current Time: ${new Date().toLocaleTimeString()}`,
+                            `Current Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+                        ];
 
                         const previousContext = input.previousContext;
                         if (Option.isSome(previousContext)) {
@@ -125,7 +134,17 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                         };
 
                         return [
+                            "# Task",
+                            "",
+                            "You are a strict academic reviewer.",
+                            "Your task is to review the changes to files and provide feedback.",
+                            "Use tools to provide specific feedback to exact lines of text",
+                            "or provide general feedback to the entire set of changes.",
+                            "You can approve or reject the work and ask for additional changes.",
+                            "As a last action, you must ALWAYS call either approve_changes or reject_changes.",
+                            "",
                             "## Original Goal",
+                            "",
                             input.goal,
                             "",
                             "## Staged Changes (Diffs)",
@@ -133,9 +152,10 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                                 .map((p) => `### ${p.path}\n\`\`\`diff\n${formatPatch(p)}\n\`\`\``)
                                 .join("\n\n"),
                             "",
-                            "Review these changes. Use add_review_comment for specific feedback.",
-                            "Call approve_changes if correct, or reject_changes with a critique.",
-                            "As a last action, ALWAYS call either approve_changes or reject_changes.",
+                            "## Environment details",
+                            `Current Date: ${new Date().toDateString()}`,
+                            `Current Time: ${new Date().toLocaleTimeString()}`,
+                            `Current Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
                         ].join("\n");
                     },
                 };
