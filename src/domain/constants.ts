@@ -21,3 +21,6 @@ export const MAX_LIST_FILE_SIZE_KB = 1024 * 1024;
 export const EXCERPT_SIZE_KB = 40 * 1024;
 
 export const STREAM_WINDOW_SIZE = 80;
+
+export const MAX_WEB_FETCH_BYTES = 5 * 1024 * 1024;
+export const MAX_WEB_FETCH_CHARS = 100_000;

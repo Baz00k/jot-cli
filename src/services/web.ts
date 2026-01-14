@@ -1,8 +1,9 @@
-import { FetchHttpClient, HttpBody, HttpClient } from "@effect/platform";
-import { Effect, Layer, Match } from "effect";
+import { MAX_WEB_FETCH_BYTES, MAX_WEB_FETCH_CHARS } from "@/domain/constants";
 import { WebFetchError, WebSearchError } from "@/domain/errors";
 import { convertHTMLToMarkdown } from "@/text/converters/html-markdown-converter";
 import { extractTextFromHTML } from "@/text/converters/html-text-extractor";
+import { FetchHttpClient, HttpBody, HttpClient } from "@effect/platform";
+import { Effect, Layer, Match } from "effect";
 
 const API_CONFIG = {
     ENDPOINT: "https://mcp.exa.ai/mcp",
@@ -12,6 +13,42 @@ const API_CONFIG = {
     DEFAULT_CONTEXT_MAX_CHARACTERS: 10000,
     TIMEOUT: 25000,
 } as const;
+
+const BINARY_CONTENT_TYPES = [
+    "application/pdf",
+    "application/octet-stream",
+    "application/zip",
+    "application/gzip",
+    "application/x-tar",
+    "application/x-rar-compressed",
+    "application/x-7z-compressed",
+    "application/msword",
+    "application/vnd.ms-",
+    "application/vnd.openxmlformats-",
+    "image/",
+    "audio/",
+    "video/",
+] as const;
+
+const isLikelyBinary = (contentType: string | undefined): boolean => {
+    if (!contentType) return false;
+    const normalized = contentType.toLowerCase().split(";").at(0)?.trim();
+    return BINARY_CONTENT_TYPES.some((pattern) => normalized?.startsWith(pattern));
+};
+
+const truncateOutput = (text: string, maxChars = MAX_WEB_FETCH_CHARS): string => {
+    if (text.length <= maxChars) return text;
+
+    const excerptSize = Math.floor(maxChars / 2) - 100;
+    const beginning = text.slice(0, excerptSize);
+    const end = text.slice(-excerptSize);
+
+    return [
+        beginning,
+        `\n\n[... truncated: showing ${excerptSize.toLocaleString()} of ${text.length.toLocaleString()} chars ...]\n\n`,
+        end,
+    ].join("");
+};
 
 export class Web extends Effect.Service<Web>()("services/web", {
     effect: Effect.gen(function* () {
@@ -130,9 +167,19 @@ export class Web extends Effect.Service<Web>()("services/web", {
                         ),
                     );
 
+                const contentType = response.headers?.["content-type"];
+
+                if (isLikelyBinary(contentType)) {
+                    return yield* new WebFetchError({
+                        message: `Cannot fetch binary content (${contentType ?? "unknown"}).`,
+                    });
+                }
+
                 const contentLength = response.headers?.["content-length"];
-                if (contentLength && parseInt(contentLength, 10) > 5 * 1024 * 1024) {
-                    return yield* new WebFetchError({ message: "Response too large (>5MB)" });
+                if (contentLength && parseInt(contentLength, 10) > MAX_WEB_FETCH_BYTES) {
+                    return yield* new WebFetchError({
+                        message: `Response too large (${(parseInt(contentLength, 10) / 1024 / 1024).toFixed(1)}MB). Maximum is ${MAX_WEB_FETCH_BYTES / 1024 / 1024}MB.`,
+                    });
                 }
 
                 const responseText = yield* response.text.pipe(
@@ -141,13 +188,16 @@ export class Web extends Effect.Service<Web>()("services/web", {
                     ),
                 );
 
+                let result: string;
                 if (format === "html") {
-                    return responseText;
+                    result = responseText;
                 } else if (format === "text") {
-                    return yield* extractTextFromHTML(responseText).pipe(Effect.tapError(Effect.logWarning));
+                    result = yield* extractTextFromHTML(responseText).pipe(Effect.tapError(Effect.logWarning));
                 } else {
-                    return yield* convertHTMLToMarkdown(responseText).pipe(Effect.tapError(Effect.logWarning));
+                    result = yield* convertHTMLToMarkdown(responseText).pipe(Effect.tapError(Effect.logWarning));
                 }
+
+                return truncateOutput(result);
             });
 
         return { search, fetch };
