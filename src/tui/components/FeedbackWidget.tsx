@@ -5,7 +5,6 @@ import { DiffReviewModal } from "@/tui/components/DiffView";
 import type { PendingUserAction } from "@/tui/hooks/useAgent";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 import { Keymap } from "@/tui/keyboard/keymap";
-import { formatDiffs } from "@/tui/utils/diff";
 
 interface FeedbackWidgetProps {
     pendingAction: PendingUserAction;
@@ -20,9 +19,10 @@ export const FeedbackWidget = ({ pendingAction, onApprove, onReject, focused }: 
     const buffer = useTextBuffer("");
 
     const openReviewModal = () => {
-        const diffContent = formatDiffs(pendingAction.diffs);
         dialog.prompt({
-            content: (ctx) => <DiffReviewModal {...ctx} diff={diffContent} onApprove={onApprove} onReject={onReject} />,
+            content: (ctx) => (
+                <DiffReviewModal {...ctx} patches={pendingAction.diffs} onApprove={onApprove} onReject={onReject} />
+            ),
             size: "full",
         });
     };

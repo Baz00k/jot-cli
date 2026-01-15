@@ -1,6 +1,8 @@
-import { parseColor, SyntaxStyle } from "@opentui/core";
+import { parseColor, type SyntaxStyle } from "@opentui/core";
 import { type PromptContext, useDialog, useDialogKeyboard } from "@opentui-ui/dialog/react";
-import { useMemo, useState } from "react";
+import { Chunk } from "effect";
+import { useState } from "react";
+import type { DiffHunk, FilePatch } from "@/domain/vfs";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 import { Keymap } from "@/tui/keyboard/keymap";
 
@@ -19,6 +21,7 @@ export interface DiffTheme {
     removedLineNumberBg: string;
     selectionBg: string;
     selectionFg: string;
+    defaultFg: string;
     syntaxStyle: Parameters<typeof SyntaxStyle.fromStyles>[0];
 }
 
@@ -38,6 +41,7 @@ export const themes: [DiffTheme, ...DiffTheme[]] = [
         removedLineNumberBg: "#3a0d0d",
         selectionBg: "#264F78",
         selectionFg: "#FFFFFF",
+        defaultFg: "#E6EDF3",
         syntaxStyle: {
             keyword: { fg: parseColor("#FF7B72"), bold: true },
             "keyword.import": { fg: parseColor("#FF7B72"), bold: true },
@@ -73,6 +77,7 @@ export const themes: [DiffTheme, ...DiffTheme[]] = [
         removedLineNumberBg: "#3a1e1e",
         selectionBg: "#49483E",
         selectionFg: "#F8F8F2",
+        defaultFg: "#F8F8F2",
         syntaxStyle: {
             keyword: { fg: parseColor("#F92672"), bold: true },
             "keyword.import": { fg: parseColor("#F92672"), bold: true },
@@ -108,6 +113,7 @@ export const themes: [DiffTheme, ...DiffTheme[]] = [
         removedLineNumberBg: "#3a2328",
         selectionBg: "#44475A",
         selectionFg: "#F8F8F2",
+        defaultFg: "#F8F8F2",
         syntaxStyle: {
             keyword: { fg: parseColor("#FF79C6"), bold: true },
             "keyword.import": { fg: parseColor("#FF79C6"), bold: true },
@@ -131,7 +137,7 @@ export const themes: [DiffTheme, ...DiffTheme[]] = [
 ];
 
 interface DiffViewProps {
-    diff: string;
+    patches: ReadonlyArray<FilePatch>;
     filetype: string;
     theme: DiffTheme;
     view: "unified" | "split";
@@ -139,9 +145,7 @@ interface DiffViewProps {
     wrapMode: "none" | "word";
 }
 
-export function DiffView({ diff, filetype, theme, view, showLineNumbers, wrapMode }: DiffViewProps) {
-    const syntaxStyle = useMemo(() => SyntaxStyle.fromStyles(theme.syntaxStyle), [theme]);
-
+export function DiffView({ patches, theme, view, showLineNumbers, wrapMode }: DiffViewProps) {
     return (
         <box
             style={{
@@ -150,39 +154,118 @@ export function DiffView({ diff, filetype, theme, view, showLineNumbers, wrapMod
                 flexDirection: "column",
             }}
         >
-            <diff
-                diff={diff}
-                view={view}
-                filetype={filetype}
-                syntaxStyle={syntaxStyle}
-                showLineNumbers={showLineNumbers}
-                wrapMode={wrapMode}
-                addedBg={theme.addedBg}
-                removedBg={theme.removedBg}
-                contextBg={theme.contextBg}
-                addedSignColor={theme.addedSignColor}
-                removedSignColor={theme.removedSignColor}
-                lineNumberFg={theme.lineNumberFg}
-                lineNumberBg={theme.lineNumberBg}
-                addedLineNumberBg={theme.addedLineNumberBg}
-                removedLineNumberBg={theme.removedLineNumberBg}
-                selectionBg={theme.selectionBg}
-                selectionFg={theme.selectionFg}
-                style={{
-                    flexGrow: 1,
-                }}
-            />
+            {patches.map((patch) => (
+                <FilePatchView
+                    key={patch.path}
+                    patch={patch}
+                    theme={theme}
+                    showLineNumbers={showLineNumbers}
+                    wrapMode={wrapMode}
+                    view={view}
+                />
+            ))}
+        </box>
+    );
+}
+
+interface FilePatchViewProps {
+    patch: FilePatch;
+    theme: DiffTheme;
+    showLineNumbers: boolean;
+    wrapMode: "none" | "word";
+    view: "unified" | "split";
+}
+
+function FilePatchView({ patch, theme, showLineNumbers }: FilePatchViewProps) {
+    const hunks = Chunk.toReadonlyArray(patch.hunks);
+
+    return (
+        <box style={{ flexDirection: "column", marginBottom: 1 }}>
+            <box style={{ backgroundColor: theme.lineNumberBg, paddingLeft: 1, paddingRight: 1, marginBottom: 0 }}>
+                <text style={{ fg: theme.borderColor }}>
+                    {patch.path} {patch.isNew ? "(New)" : patch.isDeleted ? "(Deleted)" : ""}
+                </text>
+            </box>
+            {hunks.map((hunk, i) => (
+                <HunkView key={`${patch.path}-hunk-${i}`} hunk={hunk} theme={theme} showLineNumbers={showLineNumbers} />
+            ))}
+        </box>
+    );
+}
+
+function HunkView({ hunk, theme, showLineNumbers }: { hunk: DiffHunk; theme: DiffTheme; showLineNumbers: boolean }) {
+    const lines = hunk.content.split("\n");
+    let oldLine = hunk.oldStart;
+    let newLine = hunk.newStart;
+
+    return (
+        <box style={{ flexDirection: "column" }}>
+            {lines.map((line, i) => {
+                if (line.length === 0) return null;
+                const isAdd = line.startsWith("+");
+                const isRem = line.startsWith("-");
+                const isHeader = line.startsWith("@@");
+
+                let currentOld = "";
+                let currentNew = "";
+
+                if (!isHeader) {
+                    if (isAdd) {
+                        currentNew = String(newLine++);
+                    } else if (isRem) {
+                        currentOld = String(oldLine++);
+                    } else {
+                        currentOld = String(oldLine++);
+                        currentNew = String(newLine++);
+                    }
+                }
+
+                const bgColor = isAdd
+                    ? theme.addedBg
+                    : isRem
+                      ? theme.removedBg
+                      : isHeader
+                        ? theme.lineNumberBg
+                        : theme.backgroundColor;
+                const fgColor = isAdd
+                    ? theme.addedSignColor
+                    : isRem
+                      ? theme.removedSignColor
+                      : isHeader
+                        ? theme.borderColor
+                        : theme.defaultFg;
+
+                return (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: diff lines have no unique id
+                    <box key={i} style={{ flexDirection: "row", backgroundColor: bgColor }}>
+                        {showLineNumbers && !isHeader && (
+                            <box style={{ width: 10, marginRight: 1, flexDirection: "row" }}>
+                                <box style={{ width: 4, justifyContent: "flex-end" }}>
+                                    <text style={{ fg: theme.lineNumberFg }}>{currentOld}</text>
+                                </box>
+                                <box style={{ width: 2, justifyContent: "center" }}>
+                                    <text style={{ fg: theme.lineNumberFg }}>│</text>
+                                </box>
+                                <box style={{ width: 4, justifyContent: "flex-end" }}>
+                                    <text style={{ fg: theme.lineNumberFg }}>{currentNew}</text>
+                                </box>
+                            </box>
+                        )}
+                        <text style={{ fg: fgColor }}>{line}</text>
+                    </box>
+                );
+            })}
         </box>
     );
 }
 
 interface DiffReviewModalProps extends PromptContext<void> {
-    diff: string;
+    patches: ReadonlyArray<FilePatch>;
     onApprove: () => void;
     onReject: (comment?: string) => void;
 }
 
-export function DiffReviewModal({ dialogId, dismiss, diff, onApprove, onReject }: DiffReviewModalProps) {
+export function DiffReviewModal({ dialogId, dismiss, patches, onApprove, onReject }: DiffReviewModalProps) {
     const dialog = useDialog();
     const [themeIndex, setThemeIndex] = useState(0);
     const [view, setView] = useState<"unified" | "split">("unified");
@@ -252,7 +335,7 @@ export function DiffReviewModal({ dialogId, dismiss, diff, onApprove, onReject }
             </box>
 
             <DiffView
-                diff={diff}
+                patches={patches}
                 filetype="typescript"
                 theme={theme}
                 view={view}
