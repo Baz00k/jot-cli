@@ -59,7 +59,7 @@ export class VFS extends Effect.Service<VFS>()("services/vfs", {
                 Effect.gen(function* () {
                     const original = yield* projectFiles.readFile(path, { disableExcerpts: true }).pipe(
                         Effect.map(Option.some),
-                        Effect.catchTag("FileReadError", () => Effect.succeed(Option.none())),
+                        Effect.catchAll(() => Effect.succeed(Option.none())),
                     );
 
                     if (!overwrite && Option.isSome(original)) {
@@ -104,7 +104,7 @@ export class VFS extends Effect.Service<VFS>()("services/vfs", {
                     } else {
                         original = yield* projectFiles.readFile(path, { disableExcerpts: true }).pipe(
                             Effect.map(Option.some),
-                            Effect.catchTag("FileReadError", () => Effect.succeed(Option.none())),
+                            Effect.catchAll(() => Effect.succeed(Option.none())),
                         );
                     }
 
