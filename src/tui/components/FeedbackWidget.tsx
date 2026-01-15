@@ -1,7 +1,11 @@
 import { useKeyboard } from "@opentui/react";
+import { useDialog } from "@opentui-ui/dialog/react";
 import { useState } from "react";
+import { DiffReviewModal } from "@/tui/components/DiffView";
 import type { PendingUserAction } from "@/tui/hooks/useAgent";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
+import { Keymap } from "@/tui/keyboard/keymap";
+import { formatDiffs } from "@/tui/utils/diff";
 
 interface FeedbackWidgetProps {
     pendingAction: PendingUserAction;
@@ -11,21 +15,31 @@ interface FeedbackWidgetProps {
 }
 
 export const FeedbackWidget = ({ pendingAction, onApprove, onReject, focused }: FeedbackWidgetProps) => {
+    const dialog = useDialog();
     const [rejectMode, setRejectMode] = useState(false);
     const buffer = useTextBuffer("");
+
+    const openReviewModal = () => {
+        const diffContent = formatDiffs(pendingAction.diffs);
+        dialog.prompt({
+            content: (ctx) => <DiffReviewModal {...ctx} diff={diffContent} onApprove={onApprove} onReject={onReject} />,
+            size: "full",
+        });
+    };
 
     useKeyboard((key) => {
         if (!focused) return;
 
         if (!rejectMode) {
-            if (key.name === "y") onApprove();
-            else if (key.name === "n") setRejectMode(true);
+            if (key.name === Keymap.Feedback.Approve.name) onApprove();
+            else if (key.name === Keymap.Feedback.Reject.name) setRejectMode(true);
+            else if (key.name === Keymap.DiffView.ToggleView.name) openReviewModal();
         } else {
-            if (key.name === "return") {
+            if (key.name === Keymap.Feedback.SubmitReject.name) {
                 onReject(buffer.text);
                 setRejectMode(false);
                 buffer.clear();
-            } else if (key.name === "escape") {
+            } else if (key.name === Keymap.Feedback.CancelReject.name) {
                 setRejectMode(false);
                 buffer.clear();
             } else if (key.name === "backspace") {
@@ -96,16 +110,19 @@ export const FeedbackWidget = ({ pendingAction, onApprove, onReject, focused }: 
                             {renderInput()}
                         </box>
                         <text fg="gray" style={{ marginTop: 1 }}>
-                            [Enter] Submit [Esc] Cancel
+                            [{Keymap.Feedback.SubmitReject.label}] Submit [{Keymap.Feedback.CancelReject.label}] Cancel
                         </text>
                     </box>
                 ) : (
                     <box style={{ flexDirection: "column" }}>
                         <text>
-                            <strong fg="green">[y] Approve & Apply</strong>
+                            <strong fg="cyan">[{Keymap.DiffView.ToggleView.label}] View Changes (Diff)</strong>
                         </text>
                         <text>
-                            <strong fg="red">[n] Reject & Request Changes</strong>
+                            <strong fg="green">[{Keymap.Feedback.Approve.label}] Approve & Apply</strong>
+                        </text>
+                        <text>
+                            <strong fg="red">[{Keymap.Feedback.Reject.label}] Reject & Request Changes</strong>
                         </text>
                     </box>
                 )}
