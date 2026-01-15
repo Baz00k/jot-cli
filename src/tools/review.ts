@@ -1,4 +1,5 @@
 import { jsonSchema, tool } from "ai";
+import dedent from "dedent";
 import { Chunk, Effect, JSONSchema, Option, Runtime, Schema } from "effect";
 import type { DiffHunk, FilePatch } from "@/domain/vfs";
 import { VFS } from "@/services/vfs";
@@ -52,7 +53,11 @@ export const makeReadFileDiffTool = (runtime: Runtime.Runtime<VFS>) =>
 
 export const makeAddReviewCommentTool = (runtime: Runtime.Runtime<VFS>) =>
     tool({
-        description: "Add a comment to a file or specific line in a diff.",
+        description: dedent`
+            Add a comment to a file or specific line in a diff.
+            IMPORTANT: Use this for ALL feedback passed to the writer.
+            The writer will ONLY see comments added via this tool.
+        `,
         inputSchema: jsonSchema<{ filePath: string; line?: number; comment: string }>(
             JSONSchema.make(
                 Schema.Struct({
@@ -73,7 +78,10 @@ export const makeAddReviewCommentTool = (runtime: Runtime.Runtime<VFS>) =>
 
 export const makeApproveChangesTool = (runtime: Runtime.Runtime<VFS>) =>
     tool({
-        description: "Approve all staged changes. Call this when the diff looks correct.",
+        description: dedent`
+            Approve all staged changes.
+            Call this tool EXACTLY ONCE as your final action when the diff looks correct.
+        `,
         inputSchema: jsonSchema<{ summary?: string }>(
             JSONSchema.make(
                 Schema.Struct({
@@ -85,14 +93,16 @@ export const makeApproveChangesTool = (runtime: Runtime.Runtime<VFS>) =>
         ),
         execute: async ({ summary }) => {
             return Runtime.runPromise(runtime)(
-                VFS.approve().pipe(Effect.map(() => `Changes approved.${summary ? ` Summary: ${summary}` : ""}`)),
+                VFS.approve(summary).pipe(
+                    Effect.map(() => `Changes approved.${summary ? ` Summary: ${summary}` : ""}`),
+                ),
             );
         },
     });
 
 export const makeRejectChangesTool = (runtime: Runtime.Runtime<VFS>) =>
     tool({
-        description: "Reject staged changes with a critique for the writer to address.",
+        description: "Reject staged changes. You must provide a critique to explain the rejection reason.",
         inputSchema: jsonSchema<{ critique: string }>(
             JSONSchema.make(
                 Schema.Struct({
@@ -102,7 +112,7 @@ export const makeRejectChangesTool = (runtime: Runtime.Runtime<VFS>) =>
         ),
         execute: async ({ critique }) => {
             return Runtime.runPromise(runtime)(
-                VFS.reject().pipe(Effect.map(() => `Changes rejected. Critique: ${critique}`)),
+                VFS.reject(critique).pipe(Effect.map(() => `Changes rejected. Critique: ${critique}`)),
             );
         },
     });

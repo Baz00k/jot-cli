@@ -547,12 +547,19 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
 
                             const decision = yield* vfs.getDecision();
                             const comments = yield* vfs.getComments();
-                            const approved = Option.getOrElse(decision, () => "rejected") === "approved";
+                            const decisionValue = Option.getOrElse(decision, () => ({
+                                type: "rejected" as const,
+                                message: undefined as string | undefined,
+                            }));
+                            const approved = decisionValue.type === "approved";
 
                             yield* emitEvent({
                                 _tag: "ReviewComplete",
                                 approved,
-                                critique: `Reviewer left ${Chunk.size(comments)} comments.`,
+                                critique:
+                                    decisionValue.type === "rejected" && decisionValue.message
+                                        ? decisionValue.message
+                                        : `Reviewer left ${Chunk.size(comments)} comments.`,
                                 cycle,
                             });
 
@@ -562,7 +569,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     message: "AI review rejected. Starting revision...",
                                     cycle,
                                 });
-                                yield* Ref.set(lastFeedbackRef, Option.some("Please address the review comments."));
+                                yield* Ref.set(
+                                    lastFeedbackRef,
+                                    Option.some(
+                                        decisionValue.type === "rejected" && decisionValue.message
+                                            ? decisionValue.message
+                                            : "Please address the review comments.",
+                                    ),
+                                );
                                 return yield* step(cycle);
                             }
 

@@ -63,9 +63,7 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             input.goal,
                             "",
                             "## Environment details",
-                            `Current Date: ${new Date().toDateString()}`,
-                            `Current Time: ${new Date().toLocaleTimeString()}`,
-                            `Current Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+                            `Current date: ${formatter.format(new Date())}`,
                         ];
 
                         const previousContext = input.previousContext;
@@ -74,7 +72,7 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             parts.push("", "## Context from Previous Iterations");
 
                             if (ctx.filesRead.length > 0) {
-                                parts.push("### Files Already Read");
+                                parts.push("### Files Read");
                                 parts.push(
                                     ctx.filesRead
                                         .map((f) => (f.summary ? `- ${f.path}: ${f.summary}` : `- ${f.path}`))
@@ -83,7 +81,7 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                             }
 
                             if (ctx.filesModified.length > 0) {
-                                parts.push("### Files You Modified (still staged)");
+                                parts.push("### Files Modified");
                                 parts.push(ctx.filesModified.map((f) => `- ${f}`).join("\n"));
                             }
 
@@ -91,22 +89,28 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                         }
 
                         const latestComments = input.latestComments;
-                        if (Chunk.isNonEmpty(latestComments)) {
-                            parts.push(
-                                "",
-                                "## Reviewer Feedback to Address",
-                                Chunk.toArray(latestComments)
-                                    .map(
-                                        (c) =>
-                                            `- ${c.path}${Option.isSome(c.line) ? `:${c.line.value}` : ""}: ${c.content}`,
-                                    )
-                                    .join("\n"),
-                            );
-                        }
-
                         const latestFeedback = input.latestFeedback;
-                        if (Option.isSome(latestFeedback)) {
-                            parts.push("", "## User Feedback", latestFeedback.value);
+
+                        if (Chunk.isNonEmpty(latestComments) || Option.isSome(latestFeedback)) {
+                            parts.push("", "## Reviewer Feedback", "");
+
+                            if (Option.isSome(latestFeedback)) {
+                                parts.push(latestFeedback.value, "");
+                            }
+
+                            if (Chunk.isNonEmpty(latestComments)) {
+                                parts.push(
+                                    "### Specific Comments",
+                                    Chunk.toArray(latestComments)
+                                        .map(
+                                            (c) =>
+                                                `- ${c.path}${Option.isSome(c.line) ? `:${c.line.value}` : ""}: ${c.content}`,
+                                        )
+                                        .join("\n"),
+                                );
+                            }
+
+                            parts.push("", "You have to address the feedback and resubmit the work for review.");
                         }
 
                         parts.push(
@@ -153,9 +157,7 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
                                 .join("\n\n"),
                             "",
                             "## Environment details",
-                            `Current Date: ${new Date().toDateString()}`,
-                            `Current Time: ${new Date().toLocaleTimeString()}`,
-                            `Current Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+                            `Current date: ${formatter.format(new Date())}`,
                         ].join("\n");
                     },
                 };
@@ -165,6 +167,11 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     dependencies: [BunFileSystem.layer],
     accessors: true,
 }) {}
+
+const formatter = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "full",
+    timeStyle: "short",
+});
 
 export const TestPrompts = new Prompts({
     get: () => Effect.succeed("prompt"),

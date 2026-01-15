@@ -61,19 +61,18 @@ describe("Prompts Service", () => {
 
             expect(prompt).toContain("# Task");
             expect(prompt).toContain("Write a test");
-            expect(prompt).toContain("Current Date:");
+            expect(prompt).toContain("Current date:");
 
             expect(prompt).toContain("## Context from Previous Iterations");
-            expect(prompt).toContain("### Files Already Read");
+            expect(prompt).toContain("### Files Read");
             expect(prompt).toContain("- /src/existing.ts: Existing code");
-            expect(prompt).toContain("### Files You Modified (still staged)");
+            expect(prompt).toContain("### Files Modified");
             expect(prompt).toContain("- /src/test.ts");
 
-            expect(prompt).toContain("## Reviewer Feedback to Address");
-            expect(prompt).toContain("- /src/test.ts:10: Fix this typo");
-
-            expect(prompt).toContain("## User Feedback");
+            expect(prompt).toContain("## Reviewer Feedback");
             expect(prompt).toContain("Please add more tests");
+            expect(prompt).toContain("### Specific Comments");
+            expect(prompt).toContain("- /src/test.ts:10: Fix this typo");
         }).pipe(Effect.provide(Prompts.Default));
 
         await Effect.runPromise(program);
@@ -107,7 +106,7 @@ describe("Prompts Service", () => {
 
             expect(prompt).toContain("# Task");
             expect(prompt).toContain("Review changes");
-            expect(prompt).toContain("Current Date:");
+            expect(prompt).toContain("Current date:");
 
             expect(prompt).toContain("## Staged Changes (Diffs)");
             expect(prompt).toContain("### /src/changed.ts");

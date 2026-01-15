@@ -8,7 +8,7 @@ import { replace } from "@/tools/edit-file";
 export class VFSState extends Data.Class<{
     readonly files: HashMap.HashMap<string, VirtualFile>;
     readonly comments: Chunk.Chunk<ReviewComment>;
-    readonly decision: Option.Option<"approved" | "rejected">;
+    readonly decision: Option.Option<{ type: "approved" | "rejected"; message?: string }>;
 }> {
     static readonly empty = new VFSState({
         files: HashMap.empty(),
@@ -180,9 +180,17 @@ export class VFS extends Effect.Service<VFS>()("services/vfs", {
 
             getComments: () => Ref.get(stateRef).pipe(Effect.map((s) => s.comments)),
 
-            approve: () => Ref.update(stateRef, (s) => new VFSState({ ...s, decision: Option.some("approved") })),
+            approve: (message?: string) =>
+                Ref.update(
+                    stateRef,
+                    (s) => new VFSState({ ...s, decision: Option.some({ type: "approved", message }) }),
+                ),
 
-            reject: () => Ref.update(stateRef, (s) => new VFSState({ ...s, decision: Option.some("rejected") })),
+            reject: (message?: string) =>
+                Ref.update(
+                    stateRef,
+                    (s) => new VFSState({ ...s, decision: Option.some({ type: "rejected", message }) }),
+                ),
 
             getDecision: () => Ref.get(stateRef).pipe(Effect.map((s) => s.decision)),
 

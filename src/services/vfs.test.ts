@@ -125,11 +125,11 @@ describe("VFS Service", () => {
 
             yield* vfs.approve();
             const decision1 = yield* vfs.getDecision();
-            expect(Option.getOrNull(decision1)).toBe("approved");
+            expect(Option.getOrNull(decision1)).toEqual({ type: "approved", message: undefined });
 
             yield* vfs.reject();
             const decision2 = yield* vfs.getDecision();
-            expect(Option.getOrNull(decision2)).toBe("rejected");
+            expect(Option.getOrNull(decision2)).toEqual({ type: "rejected", message: undefined });
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
