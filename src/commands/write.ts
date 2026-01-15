@@ -1,21 +1,14 @@
 import { cancel, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
-import { FileSystem, Path } from "@effect/platform";
-import { BunContext } from "@effect/platform-bun";
 import { Chunk, Effect, Fiber, Option, Stream } from "effect";
-import {
-    displayError,
-    displayLastDraft,
-    displaySaveSuccess,
-    shouldRethrow,
-    type WorkflowSnapshot,
-} from "@/commands/utils/workflow-errors";
+import { displayError, shouldRethrow } from "@/commands/utils/workflow-errors";
 import { UserCancel, WorkflowErrorHandled } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
 import type { FilePatch } from "@/domain/vfs";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
+import { VFS } from "@/services/vfs";
 import { formatWindow, renderMarkdown, renderMarkdownSnippet } from "@/text/utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
@@ -119,56 +112,14 @@ const getUserFeedback = (
     });
 
 /**
- * Prompt the user to save a draft to a file.
- * Returns the file path if the user chooses to save, or undefined if they decline.
- */
-const promptToSaveDraft = (
-    draft: string,
-): Effect.Effect<string | undefined, Error | UserCancel, FileSystem.FileSystem | Path.Path> =>
-    Effect.gen(function* () {
-        const shouldSave = yield* runPrompt(() =>
-            select({
-                message: "Would you like to save the draft to a file?",
-                options: [
-                    { value: "yes", label: "Yes, save to file" },
-                    { value: "no", label: "No, discard" },
-                ],
-            }),
-        );
-
-        if (shouldSave === "no") {
-            return undefined;
-        }
-
-        const defaultFileName = `draft-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)}.md`;
-        const filePath = yield* runPrompt(() =>
-            text({
-                message: "Enter the file path to save the draft:",
-                placeholder: defaultFileName,
-                defaultValue: defaultFileName,
-            }),
-        );
-
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const fullPath = path.resolve(filePath);
-
-        yield* fs
-            .writeFileString(fullPath, draft)
-            .pipe(Effect.mapError((error) => new Error(`Failed to save file: ${String(error)}`)));
-
-        return fullPath;
-    });
-
-/**
- * Handle workflow errors by displaying error info and offering to save any draft.
+ * Handle workflow errors by displaying error info.
  * Returns WorkflowErrorHandled to signal graceful exit, or rethrows UserCancel.
  */
 const handleWorkflowError = (
     error: unknown,
-    getSnapshot: () => Effect.Effect<WorkflowSnapshot>,
     s: ReturnType<typeof spinner>,
-): Effect.Effect<RunResult, UserCancel | WorkflowErrorHandled, FileSystem.FileSystem | Path.Path> =>
+    vfs: VFS,
+): Effect.Effect<RunResult, UserCancel | WorkflowErrorHandled> =>
     Effect.gen(function* () {
         yield* Effect.sync(() => s.stop());
 
@@ -177,25 +128,38 @@ const handleWorkflowError = (
             return yield* error;
         }
 
-        // Get current state and display error
-        const snapshot = yield* getSnapshot();
         yield* displayError(error);
 
-        // Offer to save draft if one exists
-        const draftOption = yield* displayLastDraft(snapshot);
+        yield* vfs.getDiffs().pipe(
+            Effect.flatMap((diffs) =>
+                Effect.gen(function* () {
+                    if (Chunk.size(diffs) > 0) {
+                        const files = Chunk.map(diffs, (d) => d.path).pipe(Chunk.join(", "));
+                        log.warn(`There are unsaved changes in: ${files}`);
 
-        if (Option.isSome(draftOption)) {
-            const savedPath = yield* promptToSaveDraft(draftOption.value).pipe(
-                Effect.provide(BunContext.layer),
-                Effect.catchAll(() => Effect.succeed(undefined)),
-            );
+                        const shouldSave = yield* runPrompt(() =>
+                            select({
+                                message: "Would you like to save these changes?",
+                                options: [
+                                    { value: "yes", label: "Yes, save changes" },
+                                    { value: "no", label: "No, discard" },
+                                ],
+                            }),
+                        );
 
-            if (savedPath) {
-                yield* displaySaveSuccess(savedPath, snapshot);
-                return yield* new WorkflowErrorHandled({ savedPath });
-            }
-            yield* Effect.sync(() => log.info("Draft not saved."));
-        }
+                        if (shouldSave === "yes") {
+                            const savedFiles = yield* vfs.flush();
+                            yield* Effect.sync(() => {
+                                log.success(`Saved ${savedFiles.length} file(s): ${savedFiles.join(", ")}`);
+                            });
+                        } else {
+                            yield* Effect.sync(() => log.info("Changes discarded."));
+                        }
+                    }
+                }),
+            ),
+            Effect.catchAll((e) => Effect.sync(() => log.error(`Failed to check for unsaved changes: ${e}`))),
+        );
 
         return yield* new WorkflowErrorHandled({});
     });
@@ -261,6 +225,7 @@ export const writeCommand = Command.make(
             }
 
             const agent = yield* Agent;
+            const vfs = yield* VFS;
             const s = spinner();
             yield* Effect.sync(() => s.start("Initializing agent..."));
 
@@ -335,12 +300,10 @@ export const writeCommand = Command.make(
                     }
                 });
 
-            // Process events in the background
             const eventProcessor = yield* agentSession.events.pipe(Stream.runForEach(processEvent), Effect.fork);
 
-            // Wait for the result - handle errors inline where we have access to agentSession
             const agentResult = yield* agentSession.result.pipe(
-                Effect.catchAll((error) => handleWorkflowError(error, () => agentSession.getCurrentState(), s)),
+                Effect.catchAll((error) => handleWorkflowError(error, s, vfs)),
             );
 
             yield* Fiber.join(eventProcessor);

@@ -10,6 +10,7 @@ import { ProjectFiles } from "@/services/project-files";
 import { Prompts } from "@/services/prompts";
 import { Session } from "@/services/session";
 import { UserDirs } from "@/services/user-dirs";
+import { VFS } from "@/services/vfs";
 import { Web } from "@/services/web";
 
 export const UniversalLayer = Layer.mergeAll(
@@ -22,6 +23,7 @@ export const UniversalLayer = Layer.mergeAll(
     Session.Default,
     UserDirs.Default,
     Web.Default,
+    VFS.Default,
     Clipboard.Default,
     FetchHttpClient.layer,
 ).pipe(Layer.provideMerge(BunContext.layer));
@@ -35,6 +37,7 @@ export type UniversalServices =
     | Session
     | UserDirs
     | Web
+    | VFS
     | Clipboard
     | HttpClient.HttpClient
     | BunContext.BunContext;
