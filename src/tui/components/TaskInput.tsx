@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { readFromClipboard } from "@/services/clipboard";
 import { useEffectRuntime } from "@/tui/context/EffectContext";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
+import { Keymap } from "@/tui/keyboard/keymap";
 
 export interface TaskInputProps {
     onTaskSubmit: (task: string) => void;
@@ -17,7 +18,7 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
     useKeyboard((key) => {
         if (!focused || isRunning) return;
 
-        if (key.name === "return") {
+        if (key.name === Keymap.TaskInput.Submit.name) {
             if (key.ctrl || key.meta) {
                 buffer.insert("\n");
             } else {
@@ -26,7 +27,7 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                     buffer.clear();
                 }
             }
-        } else if ((key.ctrl || key.meta) && key.name === "v") {
+        } else if ((key.ctrl || key.meta) && key.name === Keymap.TaskInput.Paste.name) {
             runtime
                 .runPromise(
                     readFromClipboard().pipe(
@@ -89,7 +90,9 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
         >
             <box style={{ flexGrow: 1, flexDirection: "row", flexWrap: "wrap", padding: 1 }}>
                 {!buffer.text && !focused ? (
-                    <text fg="gray">Enter your writing task here... (Ctrl+Enter for newline)</text>
+                    <text fg="gray">
+                        Enter your writing task here... ({Keymap.TaskInput.NewLine.label} for newline)
+                    </text>
                 ) : (
                     renderContent()
                 )}
@@ -97,7 +100,9 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
 
             <box style={{ padding: 1 }}>
                 <text fg="gray">
-                    {isRunning ? "Running agent..." : "Enter: Submit | Ctrl+Enter: New Line | Esc: Cancel"}
+                    {isRunning
+                        ? "Running agent..."
+                        : `${Keymap.TaskInput.Submit.label}: Submit | ${Keymap.TaskInput.NewLine.label}: New Line | ${Keymap.Global.Cancel.label}: Cancel`}
                 </text>
             </box>
         </box>
