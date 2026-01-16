@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useAgentContext } from "@/tui/context/AgentContext";
 import { useConfigContext } from "@/tui/context/ConfigContext";
+import { useTheme } from "@/tui/context/ThemeContext";
 import { Keymap } from "@/tui/keyboard/keymap";
 import { areKeyBindingsEqual } from "../keyboard/utils";
 
@@ -12,6 +13,7 @@ export interface StatusBarProps {
 export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
     const { config } = useConfigContext();
     const { state, retry } = useAgentContext();
+    const { theme } = useTheme();
 
     useKeyboard((keyEvent) => {
         if (disabled) return;
@@ -33,6 +35,7 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
                 justifyContent: "space-between",
                 alignItems: "center",
                 minHeight: 3,
+                borderColor: theme.borderColor,
             }}
         >
             <text>
@@ -42,7 +45,9 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
             <text>
                 W: {writer} | R: {reviewer}
             </text>
-            <text>{isRunning ? "Status: Running" : "Status: Ready"}</text>
+            <text fg={isRunning ? theme.successColor : theme.mutedColor}>
+                {isRunning ? "Status: Running" : "Status: Ready"}
+            </text>
         </box>
     );
 };

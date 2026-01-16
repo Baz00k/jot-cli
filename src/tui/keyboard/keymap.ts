@@ -15,7 +15,7 @@ export interface KeyBinding {
     description?: string;
 }
 
-export type KeyMap = Record<string, Record<string, KeyBinding>>;
+export type KeyMap = Readonly<Record<string, Record<string, KeyBinding>>>;
 
 export const Keymap = {
     Global: {

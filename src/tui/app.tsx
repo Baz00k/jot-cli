@@ -12,6 +12,7 @@ import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
 import { RendererProvider } from "@/tui/context/RendererContext";
+import { ThemeProvider } from "@/tui/context/ThemeContext";
 import { Keymap } from "@/tui/keyboard/keymap";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
@@ -44,7 +45,7 @@ function AgentWorkflow() {
             setActiveFocus("timeline");
         }
 
-        if (areKeyBindingsEqual(keyEvent, Keymap.Global.Cancel) && state.phase !== "idle") {
+        if (areKeyBindingsEqual(keyEvent, Keymap.Global.Cancel)) {
             cancel();
             renderer.setTerminalTitle("");
             renderer.destroy();
@@ -100,13 +101,15 @@ function App() {
         <ErrorBoundary>
             <EffectProvider>
                 <ConfigProvider>
-                    <DialogProvider size="large">
-                        <AgentProvider>
-                            <StrictMode>
-                                <AgentWorkflow />
-                            </StrictMode>
-                        </AgentProvider>
-                    </DialogProvider>
+                    <ThemeProvider>
+                        <DialogProvider size="large">
+                            <AgentProvider>
+                                <StrictMode>
+                                    <AgentWorkflow />
+                                </StrictMode>
+                            </AgentProvider>
+                        </DialogProvider>
+                    </ThemeProvider>
                 </ConfigProvider>
             </EffectProvider>
         </ErrorBoundary>

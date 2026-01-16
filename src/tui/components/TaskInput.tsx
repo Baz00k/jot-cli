@@ -2,6 +2,7 @@ import { useKeyboard } from "@opentui/react";
 import { Effect } from "effect";
 import { readFromClipboard } from "@/services/clipboard";
 import { useEffectRuntime } from "@/tui/context/EffectContext";
+import { useTheme } from "@/tui/context/ThemeContext";
 import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 import { Keymap } from "@/tui/keyboard/keymap";
 
@@ -14,6 +15,7 @@ export interface TaskInputProps {
 export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) => {
     const runtime = useEffectRuntime();
     const buffer = useTextBuffer("");
+    const { theme } = useTheme();
 
     useKeyboard((key) => {
         if (!focused || isRunning) return;
@@ -68,7 +70,9 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
             <text>
                 {before}
                 {focused && !isRunning ? (
-                    <span style={{ bg: "white", fg: "black" }}>{cursorChar === "\n" ? " " : cursorChar}</span>
+                    <span style={{ bg: theme.textColor, fg: theme.backgroundColor }}>
+                        {cursorChar === "\n" ? " " : cursorChar}
+                    </span>
                 ) : (
                     cursorChar
                 )}
@@ -83,14 +87,14 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
             style={{
                 width: "100%",
                 border: true,
-                borderColor: focused ? "cyan" : "gray",
+                borderColor: focused ? theme.primaryColor : theme.borderColor,
                 flexDirection: "column",
                 minHeight: 4,
             }}
         >
             <box style={{ flexGrow: 1, flexDirection: "row", flexWrap: "wrap", padding: 1 }}>
                 {!buffer.text && !focused ? (
-                    <text fg="gray">
+                    <text fg={theme.mutedColor}>
                         Enter your writing task here... ({Keymap.TaskInput.NewLine.label} for newline)
                     </text>
                 ) : (
@@ -99,7 +103,7 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
             </box>
 
             <box style={{ padding: 1 }}>
-                <text fg="gray">
+                <text fg={theme.mutedColor}>
                     {isRunning
                         ? "Running agent..."
                         : `${Keymap.TaskInput.Submit.label}: Submit | ${Keymap.TaskInput.NewLine.label}: New Line | ${Keymap.Global.Cancel.label}: Cancel`}
