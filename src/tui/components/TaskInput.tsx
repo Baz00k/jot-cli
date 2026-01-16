@@ -72,7 +72,10 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                 border: true,
                 borderColor: focused ? theme.primaryColor : theme.borderColor,
                 flexDirection: "column",
-                paddingBottom: 1,
+                gap: 1,
+                flexGrow: 1,
+                flexShrink: 0,
+                flexBasis: "auto",
             }}
         >
             <textarea
@@ -86,11 +89,13 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                     textColor: theme.textColor,
                     focusedTextColor: theme.textColor,
                     cursorColor: theme.primaryColor,
+                    cursorStyle: { blinking: focused, style: "block" },
                     minHeight: 3,
-                    maxHeight: 10,
+                    maxHeight: 12,
                 }}
             />
-            <text fg={theme.mutedColor}>
+
+            <text fg={theme.mutedColor} style={{}}>
                 {isRunning
                     ? "Running agent..."
                     : `${Keymap.TaskInput.Submit.label}: Submit | ${Keymap.TaskInput.NewLine.label}: New Line | ${Keymap.Global.Cancel.label}: Cancel`}

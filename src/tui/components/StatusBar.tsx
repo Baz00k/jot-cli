@@ -34,7 +34,7 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
-                minHeight: 3,
+                height: 3,
                 borderColor: theme.borderColor,
             }}
         >
