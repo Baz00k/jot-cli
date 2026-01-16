@@ -147,10 +147,10 @@ function RejectInput({ dialogId, dismiss, onSubmit }: PromptContext<void> & { on
 
     return (
         <box style={{ flexDirection: "column", gap: 1 }}>
-            <text>Reason for rejection:</text>
             <Input
-                focused
+                label="Reason for rejection"
                 placeholder="Type your reason here..."
+                focused
                 onSubmit={(val) => {
                     onSubmit(val);
                     dismiss();
