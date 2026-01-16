@@ -1,10 +1,7 @@
-import { useKeyboard } from "@opentui/react";
-import { Effect } from "effect";
-import { readFromClipboard } from "@/services/clipboard";
-import { useEffectRuntime } from "@/tui/context/EffectContext";
 import { useTheme } from "@/tui/context/ThemeContext";
-import { useTextBuffer } from "@/tui/hooks/useTextBuffer";
 import { Keymap } from "@/tui/keyboard/keymap";
+import type { KeyBinding, PasteEvent, TextareaRenderable } from "@opentui/core";
+import { useEffect, useRef } from "react";
 
 export interface TaskInputProps {
     onTaskSubmit: (task: string) => void;
@@ -12,74 +9,60 @@ export interface TaskInputProps {
     focused: boolean;
 }
 
+const keyBindings: KeyBinding[] = [
+    {
+        name: Keymap.TaskInput.Submit.name,
+        ctrl: false,
+        action: "submit",
+    },
+    {
+        name: Keymap.TaskInput.NewLine.name,
+        ctrl: true,
+        action: "newline",
+    },
+    {
+        name: "backspace",
+        ctrl: true,
+        action: "delete-word-backward",
+    },
+    {
+        name: "left",
+        ctrl: true,
+        action: "word-backward",
+    },
+    {
+        name: "right",
+        ctrl: true,
+        action: "word-forward",
+    },
+];
+
 export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) => {
-    const runtime = useEffectRuntime();
-    const buffer = useTextBuffer("");
     const { theme } = useTheme();
+    const inputRef = useRef<TextareaRenderable>(null);
 
-    useKeyboard((key) => {
-        if (!focused || isRunning) return;
+    useEffect(() => {
+        if (focused && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [focused]);
 
-        if (key.name === Keymap.TaskInput.Submit.name) {
-            if (key.ctrl || key.meta) {
-                buffer.insert("\n");
-            } else {
-                if (buffer.text.trim()) {
-                    onTaskSubmit(buffer.text);
-                    buffer.clear();
-                }
-            }
-        } else if ((key.ctrl || key.meta) && key.name === Keymap.TaskInput.Paste.name) {
-            runtime
-                .runPromise(
-                    readFromClipboard().pipe(
-                        Effect.tapError(Effect.logError),
-                        Effect.catchAll(() => Effect.succeed("")),
-                    ),
-                )
-                .then((text) => buffer.insert(text));
-        } else if (key.name === "backspace") {
-            buffer.deleteBack();
-        } else if (key.name === "left") {
-            buffer.moveLeft();
-        } else if (key.name === "right") {
-            buffer.moveRight();
-        } else if (key.name === "up") {
-            buffer.moveUp();
-        } else if (key.name === "down") {
-            buffer.moveDown();
-        } else if (key.name === "space") {
-            buffer.insert(" ");
-        } else if (key.name?.length === 1 || (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta)) {
-            const char = key.sequence && key.sequence.length === 1 ? key.sequence : key.name;
-            if (char && char.length === 1) {
-                buffer.insert(char);
+    const handleSubmit = () => {
+        const text = inputRef.current?.plainText || "";
+        if (text?.trim()) {
+            onTaskSubmit(text);
+            if (inputRef.current) {
+                inputRef.current.clear();
+                inputRef.current.focus();
             }
         }
-    });
+    };
 
-    const renderContent = () => {
-        const text = buffer.text;
-        const cursor = buffer.cursor;
+    const handlePaste = (event: PasteEvent) => {
+        if (!focused) return event.preventDefault();
 
-        const before = text.slice(0, cursor);
-        const cursorChar = text[cursor] || " ";
-        const after = text.slice(cursor + 1);
-
-        return (
-            <text>
-                {before}
-                {focused && !isRunning ? (
-                    <span style={{ bg: theme.textColor, fg: theme.backgroundColor }}>
-                        {cursorChar === "\n" ? " " : cursorChar}
-                    </span>
-                ) : (
-                    cursorChar
-                )}
-                {cursorChar === "\n" ? "\n" : ""}
-                {after}
-            </text>
-        );
+        const text = event.text.trim();
+        inputRef.current?.insertText(text);
     };
 
     return (
@@ -89,26 +72,29 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
                 border: true,
                 borderColor: focused ? theme.primaryColor : theme.borderColor,
                 flexDirection: "column",
-                minHeight: 4,
+                paddingBottom: 1,
             }}
         >
-            <box style={{ flexGrow: 1, flexDirection: "row", flexWrap: "wrap", padding: 1 }}>
-                {!buffer.text && !focused ? (
-                    <text fg={theme.mutedColor}>
-                        Enter your writing task here... ({Keymap.TaskInput.NewLine.label} for newline)
-                    </text>
-                ) : (
-                    renderContent()
-                )}
-            </box>
-
-            <box style={{ padding: 1 }}>
-                <text fg={theme.mutedColor}>
-                    {isRunning
-                        ? "Running agent..."
-                        : `${Keymap.TaskInput.Submit.label}: Submit | ${Keymap.TaskInput.NewLine.label}: New Line | ${Keymap.Global.Cancel.label}: Cancel`}
-                </text>
-            </box>
+            <textarea
+                ref={inputRef}
+                placeholder={`Enter your writing task here... (${Keymap.TaskInput.NewLine.label} for newline)`}
+                focused={focused}
+                keyBindings={keyBindings}
+                onSubmit={handleSubmit}
+                onPaste={handlePaste}
+                style={{
+                    textColor: theme.textColor,
+                    focusedTextColor: theme.textColor,
+                    cursorColor: theme.primaryColor,
+                    minHeight: 3,
+                    maxHeight: 10,
+                }}
+            />
+            <text fg={theme.mutedColor}>
+                {isRunning
+                    ? "Running agent..."
+                    : `${Keymap.TaskInput.Submit.label}: Submit | ${Keymap.TaskInput.NewLine.label}: New Line | ${Keymap.Global.Cancel.label}: Cancel`}
+            </text>
         </box>
     );
 };

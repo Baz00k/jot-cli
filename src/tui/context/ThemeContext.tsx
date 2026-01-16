@@ -1,5 +1,5 @@
-import { type Theme, themes } from "@/tui/theme";
 import { createContext, type ReactNode, useContext, useState } from "react";
+import { type Theme, themes } from "@/tui/theme";
 
 interface ThemeContextType {
     theme: Theme;
