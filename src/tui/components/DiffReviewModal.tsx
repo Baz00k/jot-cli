@@ -98,7 +98,7 @@ export function DiffReviewModal({
                 </scrollbox>
             )}
             <box
-                title={`Review Changes - ${theme.name}`}
+                title="Review Changes"
                 titleAlignment="center"
                 style={{
                     height: 3,
