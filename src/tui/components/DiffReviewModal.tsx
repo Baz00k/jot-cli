@@ -1,12 +1,12 @@
-import { useRenderer } from "@opentui/react";
-import { type PromptContext, useDialog, useDialogKeyboard } from "@opentui-ui/dialog/react";
-import { useState } from "react";
 import type { FilePatch } from "@/domain/vfs";
 import { DiffView } from "@/tui/components/DiffView";
-import { Input } from "@/tui/components/Input";
+import { FeedbackModal } from "@/tui/components/FeedbackModal";
 import { useTheme } from "@/tui/context/ThemeContext";
 import { Keymap } from "@/tui/keyboard/keymap";
 import { formatFilePatch } from "@/tui/utils/diff";
+import { type PromptContext, useDialog, useDialogKeyboard } from "@opentui-ui/dialog/react";
+import { useRenderer } from "@opentui/react";
+import { useState } from "react";
 
 interface DiffReviewModalProps extends PromptContext<void> {
     diffs: ReadonlyArray<FilePatch>;
@@ -29,13 +29,8 @@ export function DiffReviewModal({
     const [view, setView] = useState<"unified" | "split">("unified");
     const [showLineNumbers, setShowLineNumbers] = useState(true);
     const [wrapMode, setWrapMode] = useState<"none" | "word">("none");
-    const [rejectMode, setRejectMode] = useState(false);
 
     useDialogKeyboard((key) => {
-        if (rejectMode) {
-            return;
-        }
-
         if (key.raw === Keymap.Global.Help.name) {
             return;
         }
@@ -50,10 +45,9 @@ export function DiffReviewModal({
             onApprove();
             dismiss();
         } else if (key.name === Keymap.Feedback.Reject.name && !key.ctrl && !key.meta) {
-            setRejectMode(true);
             dialog.prompt({
                 content: (ctx) => (
-                    <RejectInput
+                    <FeedbackModal
                         {...ctx}
                         onSubmit={(reason) => {
                             onReject(reason);
@@ -61,7 +55,7 @@ export function DiffReviewModal({
                         }}
                     />
                 ),
-                size: "small",
+                size: "medium",
             });
         } else if (key.name === Keymap.Global.Exit.name && key.ctrl) {
             dismiss();
@@ -132,31 +126,6 @@ export function DiffReviewModal({
                     style={{ fg: theme.mutedColor }}
                 />
             </box>
-        </box>
-    );
-}
-
-function RejectInput({ dialogId, dismiss, onSubmit }: PromptContext<void> & { onSubmit: (text: string) => void }) {
-    const { theme } = useTheme();
-
-    useDialogKeyboard((key) => {
-        if (key.name === "escape") {
-            dismiss();
-        }
-    }, dialogId);
-
-    return (
-        <box style={{ flexDirection: "column", gap: 1 }}>
-            <Input
-                label="Reason for rejection"
-                placeholder="Type your reason here..."
-                focused
-                onSubmit={(val) => {
-                    onSubmit(val);
-                    dismiss();
-                }}
-            />
-            <text style={{ fg: theme.mutedColor }}>Enter: Submit | Esc: Cancel</text>
         </box>
     );
 }
