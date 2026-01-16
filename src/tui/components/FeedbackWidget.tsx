@@ -6,7 +6,6 @@ import { Input } from "@/tui/components/Input";
 import { useTheme } from "@/tui/context/ThemeContext";
 import type { PendingUserAction } from "@/tui/hooks/useAgent";
 import { Keymap } from "@/tui/keyboard/keymap";
-import { formatDiffs } from "@/tui/utils/diff";
 
 interface FeedbackWidgetProps {
     pendingAction: PendingUserAction;
@@ -21,10 +20,14 @@ export const FeedbackWidget = ({ pendingAction, onApprove, onReject, focused }: 
     const [rejectMode, setRejectMode] = useState(false);
 
     const openReviewModal = () => {
-        const diffContent = formatDiffs(pendingAction.diffs);
         dialog.prompt({
-            content: (ctx) => <DiffReviewModal {...ctx} diff={diffContent} onApprove={onApprove} onReject={onReject} />,
+            content: (ctx) => (
+                <DiffReviewModal {...ctx} diffs={pendingAction.diffs} onApprove={onApprove} onReject={onReject} />
+            ),
             size: "full",
+            style: {
+                padding: 0,
+            },
         });
     };
 

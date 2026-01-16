@@ -1,13 +1,15 @@
 import { useRenderer } from "@opentui/react";
 import { type PromptContext, useDialog, useDialogKeyboard } from "@opentui-ui/dialog/react";
 import { useState } from "react";
+import type { FilePatch } from "@/domain/vfs";
 import { DiffView } from "@/tui/components/DiffView";
 import { Input } from "@/tui/components/Input";
 import { useTheme } from "@/tui/context/ThemeContext";
 import { Keymap } from "@/tui/keyboard/keymap";
+import { formatFilePatch } from "@/tui/utils/diff";
 
 interface DiffReviewModalProps extends PromptContext<void> {
-    diff: string;
+    diffs: ReadonlyArray<FilePatch>;
     filetype?: string;
     onApprove: () => void;
     onReject: (comment?: string) => void;
@@ -16,7 +18,7 @@ interface DiffReviewModalProps extends PromptContext<void> {
 export function DiffReviewModal({
     dialogId,
     dismiss,
-    diff,
+    diffs,
     filetype = "markdown",
     onApprove,
     onReject,
@@ -75,7 +77,7 @@ export function DiffReviewModal({
                 maxHeight: Math.round(renderer.height * 0.95),
             }}
         >
-            {diff.length === 0 ? (
+            {diffs.length === 0 ? (
                 <text style={{ fg: theme.mutedColor }}>No changes to display.</text>
             ) : (
                 <scrollbox
@@ -84,17 +86,34 @@ export function DiffReviewModal({
                         flexGrow: 1,
                         contentOptions: {
                             padding: 2,
+                            flexDirection: "column",
+                            gap: 1,
                         },
                     }}
+                    focused
                 >
-                    <DiffView
-                        diff={diff}
-                        filetype={filetype}
-                        theme={theme.diff}
-                        view={view}
-                        showLineNumbers={showLineNumbers}
-                        wrapMode={wrapMode}
-                    />
+                    {diffs.map((diff) => (
+                        <box
+                            key={diff.path}
+                            style={{
+                                flexDirection: "column",
+                                border: true,
+                                borderStyle: "rounded",
+                                borderColor: theme.borderColor,
+                                padding: 1,
+                            }}
+                            title={diff.path}
+                        >
+                            <DiffView
+                                diff={formatFilePatch(diff)}
+                                filetype={filetype}
+                                theme={theme.diff}
+                                view={view}
+                                showLineNumbers={showLineNumbers}
+                                wrapMode={wrapMode}
+                            />
+                        </box>
+                    ))}
                 </scrollbox>
             )}
             <box

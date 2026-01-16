@@ -11,7 +11,7 @@ interface DiffViewProps {
     wrapMode: "none" | "word";
 }
 
-export function DiffView({ diff, filetype, theme, view, showLineNumbers, wrapMode }: DiffViewProps) {
+export function DiffView({ diff, filetype, theme, view, showLineNumbers, wrapMode = "word" }: DiffViewProps) {
     const syntaxStyle = useMemo(() => SyntaxStyle.fromStyles(theme.syntaxStyle), [theme]);
 
     return (
@@ -34,8 +34,7 @@ export function DiffView({ diff, filetype, theme, view, showLineNumbers, wrapMod
             selectionBg={theme.selectionBg}
             selectionFg={theme.selectionFg}
             style={{
-                flexGrow: 1,
-                flexShrink: 1,
+                width: "100%",
             }}
         />
     );

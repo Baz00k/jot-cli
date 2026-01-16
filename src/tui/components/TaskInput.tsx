@@ -1,7 +1,7 @@
-import { useTheme } from "@/tui/context/ThemeContext";
-import { Keymap } from "@/tui/keyboard/keymap";
 import type { KeyBinding, PasteEvent, TextareaRenderable } from "@opentui/core";
 import { useEffect, useRef } from "react";
+import { useTheme } from "@/tui/context/ThemeContext";
+import { Keymap } from "@/tui/keyboard/keymap";
 
 export interface TaskInputProps {
     onTaskSubmit: (task: string) => void;
