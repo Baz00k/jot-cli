@@ -1,10 +1,10 @@
+import { useKeyboard } from "@opentui/react";
+import { useDialog } from "@opentui-ui/dialog/react";
 import { DiffReviewModal } from "@/tui/components/DiffReviewModal";
 import { FeedbackModal } from "@/tui/components/FeedbackModal";
 import { useTheme } from "@/tui/context/ThemeContext";
 import type { PendingUserAction } from "@/tui/hooks/useAgent";
 import { Keymap } from "@/tui/keyboard/keymap";
-import { useDialog } from "@opentui-ui/dialog/react";
-import { useKeyboard } from "@opentui/react";
 
 interface FeedbackWidgetProps {
     pendingAction: PendingUserAction;

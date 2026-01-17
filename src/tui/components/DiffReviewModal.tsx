@@ -1,12 +1,12 @@
+import { useRenderer } from "@opentui/react";
+import { type PromptContext, useDialog, useDialogKeyboard } from "@opentui-ui/dialog/react";
+import { useState } from "react";
 import type { FilePatch } from "@/domain/vfs";
 import { DiffView } from "@/tui/components/DiffView";
 import { FeedbackModal } from "@/tui/components/FeedbackModal";
 import { useTheme } from "@/tui/context/ThemeContext";
 import { Keymap } from "@/tui/keyboard/keymap";
 import { formatFilePatch } from "@/tui/utils/diff";
-import { type PromptContext, useDialog, useDialogKeyboard } from "@opentui-ui/dialog/react";
-import { useRenderer } from "@opentui/react";
-import { useState } from "react";
 
 interface DiffReviewModalProps extends PromptContext<void> {
     diffs: ReadonlyArray<FilePatch>;
