@@ -44,8 +44,8 @@ describe("Agent Service", () => {
             return Effect.succeed({ content: "Draft content", cost: 0 });
         });
 
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -88,8 +88,8 @@ describe("Agent Service", () => {
         streamTextMock.mockImplementation(() => Effect.succeed({ content: "Fallback", cost: 0 }));
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 1", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.reject();
                 return { content: "Rejected", cost: 0 };
@@ -97,8 +97,8 @@ describe("Agent Service", () => {
         );
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 2", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -130,8 +130,8 @@ describe("Agent Service", () => {
 
     test("stops at max iterations", async () => {
         const streamTextMock = mock();
-        streamTextMock.mockImplementation(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementation(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.reject();
                 return { content: "Draft", cost: 0 };
@@ -157,8 +157,8 @@ describe("Agent Service", () => {
         streamTextMock.mockImplementation(() => Effect.succeed({ content: "Fallback", cost: 0 }));
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 1", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -166,8 +166,8 @@ describe("Agent Service", () => {
         );
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 2", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -210,8 +210,8 @@ describe("Agent Service", () => {
         streamTextMock.mockImplementation(() => Effect.succeed({ content: "Fallback", cost: 0 }));
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 1", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -227,8 +227,8 @@ describe("Agent Service", () => {
 
             yield* Stream.runCollect(
                 runner.events.pipe(
-                    Stream.tap((event: AgentEvent) =>
-                        Effect.gen(function* () {
+                    Stream.tap(
+                        Effect.fn(function* (event: AgentEvent) {
                             if (event._tag === "DraftComplete") {
                                 const current = yield* Ref.get(stateRef);
                                 if (!current) {
