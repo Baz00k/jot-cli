@@ -1,4 +1,5 @@
 import { useAgentContext } from "@/tui/context/AgentContext";
+import { useTheme } from "@/tui/context/ThemeContext";
 import { TimelineItem } from "./timeline/TimelineItem";
 
 interface TimelineProps {
@@ -10,6 +11,7 @@ interface TimelineProps {
 export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
     const { state } = useAgentContext();
     const { timeline: entries, streamBuffer, streamPhase } = state;
+    const { theme } = useTheme();
 
     return (
         <scrollbox
@@ -19,8 +21,8 @@ export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
                 scrollbarOptions: {
                     showArrows: true,
                     trackOptions: {
-                        foregroundColor: "#7aa2f7",
-                        backgroundColor: "#414868",
+                        foregroundColor: theme.primaryColor,
+                        backgroundColor: theme.diff.lineNumberBg,
                     },
                 },
                 contentOptions: {
@@ -29,6 +31,7 @@ export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
                 },
                 flexGrow: 1,
                 border: true,
+                borderColor: focused ? theme.primaryColor : theme.borderColor,
             }}
             focused={focused}
             title="Jot CLI - AI Research Assistant"
@@ -45,9 +48,16 @@ export const Timeline = ({ focused, onApprove, onReject }: TimelineProps) => {
             ))}
 
             {streamPhase && (
-                <box style={{ marginTop: 1, borderColor: "gray", flexDirection: "column", borderStyle: "rounded" }}>
-                    <text fg="gray">{streamPhase === "drafting" ? "Drafting..." : "Processing..."}</text>
-                    <text fg="#a9b1d6">{streamBuffer}</text>
+                <box
+                    style={{
+                        marginTop: 1,
+                        borderColor: theme.borderColor,
+                        flexDirection: "column",
+                        borderStyle: "rounded",
+                    }}
+                >
+                    <text fg={theme.mutedColor}>{streamPhase === "drafting" ? "Drafting..." : "Processing..."}</text>
+                    <text fg={theme.secondaryColor}>{streamBuffer}</text>
                 </box>
             )}
         </scrollbox>

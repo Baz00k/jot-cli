@@ -24,7 +24,7 @@ const getConfigDir = Effect.gen(function* () {
         return path.join(homeDir, ".config", APP_NAME);
     }
 
-    return yield* Effect.fail(new UserDirError({ message: "Could not determine config directory" }));
+    return yield* new UserDirError({ message: "Could not determine config directory" });
 });
 
 const getDataDir = Effect.gen(function* () {
@@ -45,7 +45,7 @@ const getDataDir = Effect.gen(function* () {
         return path.join(homeDir, ".local", "share", APP_NAME);
     }
 
-    return yield* Effect.fail(new UserDirError({ message: "Could not determine data directory" }));
+    return yield* new UserDirError({ message: "Could not determine data directory" });
 });
 
 export class UserDirs extends Effect.Service<UserDirs>()("services/user-dirs", {

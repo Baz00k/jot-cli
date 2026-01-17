@@ -49,12 +49,10 @@ export class ProjectFiles extends Effect.Service<ProjectFiles>()("services/Proje
                 const lowerCwd = normCwd.toLowerCase();
 
                 if (!lowerResolved.startsWith(lowerCwd)) {
-                    return yield* Effect.fail(
-                        new FileReadError({
-                            cause: "Access denied",
-                            message: `Access denied: ${resolved} is outside of ${cwd}`,
-                        }),
-                    );
+                    return yield* new FileReadError({
+                        cause: "Access denied",
+                        message: `Access denied: ${resolved} is outside of ${cwd}`,
+                    });
                 }
 
                 return resolved;

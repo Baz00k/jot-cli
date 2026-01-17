@@ -1,19 +1,24 @@
-import { Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
+import type { PlatformError } from "@effect/platform/Error";
+import { Chunk, Deferred, Effect, Fiber, Option, Queue, Ref, Runtime, Schema, Stream } from "effect";
 import { DEFAULT_MODEL_REVIEWER, DEFAULT_MODEL_WRITER, MAX_STEP_COUNT } from "@/domain/constants";
 import {
     AgentLoopError,
     AgentStreamError,
+    type FileReadError,
+    type FileWriteError,
     MaxIterationsReached,
     NoUserActionPending,
     UserCancel,
+    type VFSError,
 } from "@/domain/errors";
-import { DraftGenerated, ReviewCompleted, ReviewResult, UserFeedback, WorkflowState } from "@/domain/workflow";
+import type { FilePatch } from "@/domain/vfs";
 import { Config } from "@/services/config";
 import { LLM, type ToolCallRecord } from "@/services/llm";
-import { Prompts } from "@/services/prompts";
-import { Session } from "@/services/session";
+import { Prompts, type WriterContext } from "@/services/prompts";
+import { Session, type SessionHandle } from "@/services/session";
+import { VFS } from "@/services/vfs";
 import { Web } from "@/services/web";
-import { edit_tools, explore_tools } from "@/tools";
+import { makeReviewerTools, makeWriterTools } from "@/tools";
 
 export const reasoningOptions = Schema.Literal("low", "medium", "high");
 
@@ -46,7 +51,7 @@ export type AgentEvent =
       }
     | {
           readonly _tag: "UserActionRequired";
-          readonly draft: string;
+          readonly diffs: ReadonlyArray<FilePatch>;
           readonly cycle: number;
       }
     | {
@@ -69,10 +74,16 @@ export type AgentEvent =
           readonly _tag: "IterationLimitReached";
           readonly iterations: number;
           readonly lastDraft: string;
+      }
+    | {
+          readonly _tag: "StateUpdate";
+          readonly files: ReadonlyArray<string>;
+          readonly cost: number;
       };
 
 export interface RunOptions {
-    readonly prompt: string;
+    readonly prompt?: string;
+    readonly sessionId?: string;
     readonly modelWriter?: string;
     readonly modelReviewer?: string;
     readonly reasoning?: boolean;
@@ -83,7 +94,6 @@ export interface RunOptions {
 export interface RunResult {
     readonly finalContent: string;
     readonly iterations: number;
-    readonly state: WorkflowState;
     readonly totalCost: number;
     readonly sessionId: string;
     readonly sessionPath: string;
@@ -95,50 +105,198 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
         const config = yield* Config;
         const session = yield* Session;
         const llm = yield* LLM;
+        const vfs = yield* VFS;
+        const runtime = yield* Effect.runtime<VFS>();
 
         return {
-            /**
-             * Run the autonomous agent loop.
-             * Returns a stream of events and a result promise.
-             */
-            run: (options: RunOptions) =>
-                Effect.gen(function* () {
-                    yield* Effect.logInfo("Starting agent run").pipe(
-                        Effect.annotateLogs({
-                            writer: options.modelWriter,
-                            reviewer: options.modelReviewer,
-                            reasoning: options.reasoning,
-                            maxIterations: options.maxIterations,
-                        }),
+            run: Effect.fn("run")(function* (options: RunOptions) {
+                const userConfig = yield* config.get;
+
+                const maxIterations = options.maxIterations ?? userConfig.agentMaxIterations;
+                const reasoning = options.reasoning ?? true;
+                const reasoningEffort = options.reasoningEffort ?? "high";
+                const modelWriter = options.modelWriter ?? userConfig.writerModel ?? DEFAULT_MODEL_WRITER;
+                const modelReviewer = options.modelReviewer ?? userConfig.reviewerModel ?? DEFAULT_MODEL_REVIEWER;
+
+                yield* Effect.logInfo("Starting agent run").pipe(
+                    Effect.annotateLogs({
+                        writer: modelWriter,
+                        reviewer: modelReviewer,
+                        reasoning: reasoning,
+                        maxIterations: maxIterations,
+                        sessionId: options.sessionId,
+                    }),
+                );
+
+                const writerModel = yield* llm.createModel({
+                    name: modelWriter,
+                    role: "writer",
+                    reasoning,
+                    reasoningEffort,
+                });
+
+                const reviewerModel = yield* llm.createModel({
+                    name: modelReviewer,
+                    role: "reviewer",
+                    reasoning,
+                    reasoningEffort,
+                });
+
+                let sessionHandle: SessionHandle;
+                let initialPrompt = options.prompt ?? "";
+                let startCycle = 0;
+
+                let initialContext: WriterContext = {
+                    filesRead: [],
+                    filesModified: [],
+                };
+                let initialFeedback: Option.Option<string> = Option.none();
+
+                const extractContextFromToolCall = (
+                    name: string,
+                    input: unknown,
+                    output: unknown,
+                ): Partial<WriterContext> => {
+                    if (name === "read_file" && typeof input === "object" && input !== null) {
+                        const filePath = (input as { filePath?: string }).filePath;
+                        if (filePath) {
+                            const summary =
+                                typeof output === "string"
+                                    ? output
+                                          .split("\n")
+                                          .find((l) => l.trim())
+                                          ?.slice(0, 80)
+                                    : undefined;
+                            return { filesRead: [{ path: filePath, summary }] };
+                        }
+                    }
+                    if (
+                        (name === "write_file" || name === "edit_file") &&
+                        typeof input === "object" &&
+                        input !== null
+                    ) {
+                        const filePath = (input as { filePath?: string }).filePath;
+                        if (filePath) {
+                            return { filesModified: [filePath] };
+                        }
+                    }
+                    return {};
+                };
+
+                if (options.sessionId) {
+                    sessionHandle = yield* session.resume(options.sessionId).pipe(
+                        Effect.mapError(
+                            (error) =>
+                                new AgentStreamError({
+                                    cause: error,
+                                    message: "message" in error ? error.message : "Failed to resume session",
+                                }),
+                        ),
                     );
+                    const sessionData = yield* session.get(options.sessionId);
+                    if (sessionData) {
+                        startCycle = sessionData.iterations;
+                        if (sessionData.status === "failed") {
+                            startCycle = Math.max(0, startCycle - 1);
+                        }
 
-                    const userConfig = yield* config.get;
+                        let replayCycle = 0;
+                        for (const entry of sessionData.entries) {
+                            if (
+                                entry._tag === "AgentEvent" &&
+                                typeof entry.event === "object" &&
+                                entry.event !== null &&
+                                "cycle" in entry.event
+                            ) {
+                                replayCycle = (entry.event as { cycle: number }).cycle;
+                            }
 
-                    const maxIterations = options.maxIterations ?? userConfig.agentMaxIterations;
-                    const reasoning = options.reasoning ?? true;
-                    const reasoningEffort = options.reasoningEffort ?? "high";
+                            if (entry._tag === "ToolCall" && replayCycle <= startCycle) {
+                                if (entry.name === "write_file") {
+                                    const input = entry.input as { filePath: string; content: string };
+                                    if (input?.filePath && typeof input.content === "string") {
+                                        yield* vfs.writeFile(input.filePath, input.content, true).pipe(Effect.ignore);
+                                    }
+                                } else if (entry.name === "edit_file") {
+                                    const input = entry.input as {
+                                        filePath: string;
+                                        oldString: string;
+                                        newString: string;
+                                        replaceAll?: boolean;
+                                    };
+                                    if (
+                                        input?.filePath &&
+                                        typeof input.oldString === "string" &&
+                                        typeof input.newString === "string"
+                                    ) {
+                                        yield* vfs
+                                            .editFile(
+                                                input.filePath,
+                                                input.oldString,
+                                                input.newString,
+                                                input.replaceAll ?? false,
+                                            )
+                                            .pipe(Effect.ignore);
+                                    }
+                                }
+                            }
+                        }
 
-                    const writerModel = yield* llm.createModel({
-                        name: options.modelWriter ?? userConfig.writerModel ?? DEFAULT_MODEL_WRITER,
-                        role: "writer",
-                        reasoning,
-                        reasoningEffort,
-                    });
+                        const promptEntry = sessionData.entries.find((e) => e._tag === "UserInput") as
+                            | { prompt: string }
+                            | undefined;
+                        if (promptEntry) {
+                            initialPrompt = promptEntry.prompt;
+                        }
 
-                    const reviewerModel = yield* llm.createModel({
-                        name: options.modelReviewer ?? userConfig.reviewerModel ?? DEFAULT_MODEL_REVIEWER,
-                        role: "reviewer",
-                        reasoning,
-                        reasoningEffort,
-                    });
-
-                    const writerModelName = options.modelWriter ?? DEFAULT_MODEL_WRITER;
-                    const reviewerModelName = options.modelReviewer ?? DEFAULT_MODEL_REVIEWER;
-                    const sessionHandle = yield* session
+                        for (const entry of sessionData.entries) {
+                            if (entry._tag === "ToolCall") {
+                                const partial = extractContextFromToolCall(entry.name, entry.input, entry.output);
+                                initialContext = {
+                                    filesRead: [...initialContext.filesRead, ...(partial.filesRead ?? [])],
+                                    filesModified: [...initialContext.filesModified, ...(partial.filesModified ?? [])],
+                                };
+                            }
+                            if (
+                                entry._tag === "AgentEvent" &&
+                                typeof entry.event === "object" &&
+                                entry.event !== null
+                            ) {
+                                const evt = entry.event as AgentEvent;
+                                if (evt._tag === "ReviewComplete") {
+                                    if (!evt.approved) {
+                                        initialFeedback = Option.some(evt.critique);
+                                    } else {
+                                        initialFeedback = Option.none();
+                                    }
+                                }
+                                if (evt._tag === "UserInput") {
+                                    if (evt.content.startsWith("Rejected:")) {
+                                        initialFeedback = Option.some(evt.content.replace("Rejected: ", ""));
+                                    } else if (evt.content === "Approved") {
+                                        initialFeedback = Option.none();
+                                    }
+                                }
+                            }
+                        }
+                        initialContext = {
+                            ...initialContext,
+                            filesModified: [...new Set(initialContext.filesModified)],
+                        };
+                    }
+                } else {
+                    if (!options.prompt) {
+                        return yield* new AgentStreamError({
+                            message: "Prompt is required for new sessions",
+                            cause: new Error("Missing prompt"),
+                        });
+                    }
+                    initialPrompt = options.prompt;
+                    sessionHandle = yield* session
                         .create({
                             prompt: options.prompt,
-                            modelWriter: writerModelName,
-                            modelReviewer: reviewerModelName,
+                            modelWriter,
+                            modelReviewer,
                             reasoning,
                             reasoningEffort,
                             maxIterations,
@@ -152,445 +310,395 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                     }),
                             ),
                         );
+                }
 
-                    yield* Effect.logDebug(`Session created: ${sessionHandle.id}`);
+                yield* Effect.logDebug(`Session ID: ${sessionHandle.id}, Cycle: ${startCycle}`);
 
-                    const writerTask = yield* prompts.getWriterTask;
-                    const reviewerTask = yield* prompts.getReviewerTask;
-                    const editorTask = yield* prompts.getEditorTask;
+                const writerTask = yield* prompts.getWriterTask;
+                const reviewerTask = yield* prompts.getReviewerTask;
 
-                    const eventQueue = yield* Queue.unbounded<AgentEvent>();
-                    const userActionDeferred = yield* Ref.make<Deferred.Deferred<UserAction, UserCancel> | null>(null);
+                const eventQueue = yield* Queue.unbounded<AgentEvent>();
+                const userActionDeferred = yield* Ref.make<Deferred.Deferred<UserAction, UserCancel> | null>(null);
 
-                    const stateRef = yield* Ref.make(WorkflowState.empty);
+                const lastFeedbackRef = yield* Ref.make<Option.Option<string>>(initialFeedback);
+                const writerContextRef = yield* Ref.make<WriterContext>(initialContext);
 
-                    const runtime = yield* Effect.runtime<never>();
+                const writer_tools = makeWriterTools(runtime);
+                const reviewer_tools = makeReviewerTools(runtime);
 
-                    const emitEvent = (event: AgentEvent) =>
-                        Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], {
-                            discard: true,
+                const emitEvent = (event: AgentEvent) =>
+                    Effect.all([Queue.offer(eventQueue, event), sessionHandle.addAgentEvent(event)], {
+                        discard: true,
+                    });
+
+                const broadcastState = Effect.fn("broadcastState")(function* () {
+                    const summary = yield* vfs.getSummary();
+                    const cost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
+                    yield* emitEvent({
+                        _tag: "StateUpdate",
+                        files: summary.files,
+                        cost,
+                    });
+                });
+
+                const saveToolCall = (record: ToolCallRecord) => {
+                    Runtime.runPromise(runtime)(
+                        Effect.all(
+                            [
+                                sessionHandle.addToolCall(record.name, record.input, record.output),
+                                Queue.offer(eventQueue, {
+                                    _tag: "ToolCall",
+                                    name: record.name,
+                                    input: record.input,
+                                    output: record.output,
+                                } as const),
+                                Effect.suspend(() => {
+                                    const partial = extractContextFromToolCall(
+                                        record.name,
+                                        record.input,
+                                        record.output,
+                                    );
+                                    const contextUpdate =
+                                        Object.keys(partial).length > 0
+                                            ? Ref.update(writerContextRef, (ctx) => ({
+                                                  filesRead: [...ctx.filesRead, ...(partial.filesRead ?? [])],
+                                                  filesModified: [
+                                                      ...new Set([
+                                                          ...ctx.filesModified,
+                                                          ...(partial.filesModified ?? []),
+                                                      ]),
+                                                  ],
+                                              }))
+                                            : Effect.void;
+
+                                    return Effect.all([contextUpdate, broadcastState()], { discard: true });
+                                }),
+                            ],
+                            { discard: true },
+                        ),
+                    );
+                };
+
+                const step = Effect.fn("step")(function* (
+                    currentCycle: number,
+                ): Effect.fn.Return<
+                    string,
+                    | AgentStreamError
+                    | AgentLoopError
+                    | MaxIterationsReached
+                    | UserCancel
+                    | PlatformError
+                    | FileReadError
+                    | FileWriteError
+                    | VFSError,
+                    never
+                > {
+                    const cycle = currentCycle + 1;
+                    yield* sessionHandle.updateIterations(cycle);
+
+                    yield* Effect.logDebug(`Starting agent cycle ${cycle}`);
+
+                    if (currentCycle === 0) {
+                        yield* emitEvent({
+                            _tag: "UserInput",
+                            content: initialPrompt,
+                            cycle,
                         });
+                    }
 
-                    const saveToolCall = (record: ToolCallRecord) => {
-                        Runtime.runPromise(runtime)(
-                            Effect.all(
-                                [
-                                    sessionHandle.addToolCall(record.name, record.input, record.output),
-                                    Queue.offer(eventQueue, {
-                                        _tag: "ToolCall",
-                                        name: record.name,
-                                        input: record.input,
-                                        output: record.output,
-                                    } as const),
-                                ],
-                                { discard: true },
+                    if (cycle > maxIterations) {
+                        const totalCost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
+                        yield* emitEvent({
+                            _tag: "IterationLimitReached",
+                            iterations: cycle,
+                            lastDraft: "",
+                        });
+                        return yield* new MaxIterationsReached({
+                            iterations: cycle,
+                            lastDraft: "",
+                            totalCost,
+                        });
+                    }
+
+                    const isRevision = cycle > 1;
+
+                    yield* emitEvent({
+                        _tag: "Progress",
+                        message: isRevision ? "Revising changes..." : "Drafting changes...",
+                        cycle,
+                    });
+
+                    if (!isRevision) {
+                        yield* vfs.reset();
+                    }
+
+                    const lastFeedback = yield* Ref.get(lastFeedbackRef);
+                    const lastComments = yield* vfs.getComments();
+                    const previousContext = yield* Ref.get(writerContextRef);
+
+                    const writerPrompt = writerTask.render({
+                        goal: initialPrompt,
+                        latestComments: lastComments,
+                        latestFeedback: lastFeedback,
+                        previousContext: isRevision ? Option.some(previousContext) : Option.none(),
+                    });
+
+                    const { content: _writerOutput, cost: draftCost } = yield* llm
+                        .streamText(
+                            {
+                                model: writerModel,
+                                system: writerTask.system,
+                                prompt: writerPrompt,
+                                tools: writer_tools,
+                                maxSteps: MAX_STEP_COUNT,
+                            },
+                            (chunk) => {
+                                Runtime.runSync(runtime)(
+                                    Effect.all(
+                                        [
+                                            Queue.offer(eventQueue, {
+                                                _tag: "StreamChunk",
+                                                content: chunk,
+                                                phase: "drafting",
+                                            } as const),
+                                        ],
+                                        { discard: true },
+                                    ),
+                                );
+                            },
+                            saveToolCall,
+                        )
+                        .pipe(
+                            Effect.mapError(
+                                (error) =>
+                                    new AgentLoopError({
+                                        cause: error,
+                                        message: error.message,
+                                        phase: "drafting",
+                                    }),
                             ),
                         );
-                    };
 
-                    const step = (): Effect.Effect<
-                        string,
-                        AgentLoopError | MaxIterationsReached | UserCancel | AgentStreamError
-                    > =>
-                        Effect.gen(function* () {
-                            const state = yield* Ref.get(stateRef);
-                            const cycle = state.iterationCount + 1;
+                    yield* sessionHandle.addCost(draftCost);
+                    yield* broadcastState();
 
-                            yield* Effect.logDebug(`Starting agent cycle ${cycle}`);
+                    const summary = yield* vfs.getSummary();
 
-                            if (state.iterationCount >= maxIterations) {
-                                const lastDraft = Option.getOrElse(state.latestDraft, () => "");
-                                const totalCost = yield* sessionHandle
-                                    .getTotalCost()
-                                    .pipe(Effect.orElseSucceed(() => 0));
-                                yield* emitEvent({
-                                    _tag: "IterationLimitReached",
-                                    iterations: state.iterationCount,
-                                    lastDraft,
-                                });
-                                return yield* new MaxIterationsReached({
-                                    iterations: state.iterationCount,
-                                    lastDraft,
-                                    totalCost,
-                                });
-                            }
+                    yield* Effect.logDebug("Drafting complete", { files: summary.fileCount });
 
-                            const isRevision = Option.isSome(state.latestDraft);
-                            const latestFeedback = state.latestFeedback;
+                    yield* emitEvent({
+                        _tag: "DraftComplete",
+                        content: _writerOutput,
+                        cycle,
+                    });
 
-                            // Extract previously read files to provide context during revision
-                            const getSourceContext = Effect.gen(function* () {
-                                if (!isRevision) return undefined;
-                                const toolCalls = yield* sessionHandle.getToolCalls();
-                                const readCalls = toolCalls.filter(
-                                    (tc) =>
-                                        tc.name === "read_file" &&
-                                        typeof tc.output === "string" &&
-                                        typeof tc.input === "object" &&
-                                        tc.input !== null &&
-                                        "filePath" in tc.input,
-                                );
+                    yield* emitEvent({
+                        _tag: "Progress",
+                        message: "Reviewer inspecting changes...",
+                        cycle,
+                    });
 
-                                // Deduplicate by filePath, keeping the latest read
-                                const fileMap = new Map<string, string>();
-                                for (const call of readCalls) {
-                                    const path = (call.input as { filePath: string }).filePath;
-                                    fileMap.set(path, call.output as string);
-                                }
+                    const diffs = yield* vfs.getDiffs();
+                    const reviewPrompt = reviewerTask.render({
+                        goal: initialPrompt,
+                        diffs,
+                    });
 
-                                if (fileMap.size === 0) return undefined;
-
-                                return Array.from(fileMap.entries())
-                                    .map(([path, content]) => `File: ${path}\n\`\`\`\n${content}\n\`\`\``)
-                                    .join("\n\n");
-                            });
-
-                            const sourceFiles = yield* getSourceContext;
-
-                            yield* Effect.logDebug("Starting drafting phase", {
-                                isRevision,
-                                hasSourceContext: !!sourceFiles,
-                            });
-
-                            yield* emitEvent({
-                                _tag: "Progress",
-                                message: isRevision ? "Revising draft..." : "Drafting initial content...",
-                                cycle,
-                            });
-
-                            if (cycle === 1 && !isRevision) {
-                                yield* emitEvent({
-                                    _tag: "UserInput",
-                                    content: options.prompt,
-                                    cycle,
-                                });
-                            }
-
-                            const writerPrompt = writerTask.render({
-                                goal: options.prompt,
-                                context:
-                                    isRevision && Option.isSome(latestFeedback)
-                                        ? {
-                                              draft: Option.getOrElse(state.latestDraft, () => ""),
-                                              feedback: latestFeedback.value,
-                                              sourceFiles,
-                                          }
-                                        : undefined,
-                            });
-
-                            const { content: newContent, cost: draftCost } = yield* llm
-                                .streamText(
-                                    {
-                                        model: writerModel,
-                                        system: writerTask.system,
-                                        prompt: writerPrompt,
-                                        tools: isRevision ? {} : explore_tools,
-                                        maxSteps: MAX_STEP_COUNT,
-                                    },
-                                    (chunk) => {
-                                        Runtime.runSync(runtime)(
-                                            Effect.all(
-                                                [
-                                                    Queue.offer(eventQueue, {
-                                                        _tag: "StreamChunk",
-                                                        content: chunk,
-                                                        phase: "drafting",
-                                                    } as const),
-                                                ],
-                                                { discard: true },
-                                            ),
-                                        );
-                                    },
-                                    saveToolCall,
-                                )
-                                .pipe(
-                                    Effect.mapError(
-                                        (error) =>
-                                            new AgentLoopError({
-                                                cause: error,
-                                                message: error.message,
-                                                phase: "drafting",
-                                            }),
-                                    ),
-                                );
-
-                            yield* sessionHandle.addCost(draftCost);
-
-                            yield* Ref.update(stateRef, (s) =>
-                                s.add(
-                                    new DraftGenerated({
-                                        cycle,
-                                        content: newContent,
-                                        timestamp: Date.now(),
-                                    }),
-                                ),
-                            );
-
-                            yield* Effect.logDebug("Drafting complete", { length: newContent.length });
-
-                            yield* emitEvent({
-                                _tag: "DraftComplete",
-                                content: newContent,
-                                cycle,
-                            });
-
-                            yield* Effect.logDebug("Starting review phase", { cycle });
-                            yield* emitEvent({
-                                _tag: "Progress",
-                                message: "Reviewing draft...",
-                                cycle,
-                            });
-
-                            const reviewPrompt = reviewerTask.render({
-                                goal: options.prompt,
-                                draft: newContent,
-                                sourceFiles,
-                            });
-
-                            const { result: reviewResult, cost: reviewCost } = yield* llm
-                                .generateObject({
-                                    model: reviewerModel,
-                                    system: reviewerTask.system,
-                                    prompt: reviewPrompt,
-                                    tools: explore_tools,
-                                    schema: ReviewResult,
-                                })
-                                .pipe(
-                                    Effect.mapError(
-                                        (error) =>
-                                            new AgentLoopError({
-                                                cause: error,
-                                                message: error.message,
+                    const { content: _reviewOutput, cost: reviewCost } = yield* llm
+                        .streamText(
+                            {
+                                model: reviewerModel,
+                                system: reviewerTask.system,
+                                prompt: reviewPrompt,
+                                tools: reviewer_tools,
+                                maxSteps: MAX_STEP_COUNT,
+                            },
+                            (chunk) => {
+                                Runtime.runSync(runtime)(
+                                    Effect.all(
+                                        [
+                                            Queue.offer(eventQueue, {
+                                                _tag: "StreamChunk",
+                                                content: chunk,
                                                 phase: "reviewing",
-                                            }),
+                                            } as const),
+                                        ],
+                                        { discard: true },
                                     ),
                                 );
-
-                            yield* sessionHandle.addCost(reviewCost);
-
-                            yield* Effect.logDebug("Review complete", { approved: reviewResult.approved });
-
-                            yield* Ref.update(stateRef, (s) =>
-                                s.add(
-                                    new ReviewCompleted({
-                                        cycle,
-                                        approved: reviewResult.approved,
-                                        critique: reviewResult.critique,
-                                        reasoning: reviewResult.reasoning,
-                                        timestamp: Date.now(),
+                            },
+                            saveToolCall,
+                        )
+                        .pipe(
+                            Effect.mapError(
+                                (error) =>
+                                    new AgentLoopError({
+                                        cause: error,
+                                        message: error.message,
+                                        phase: "reviewing",
                                     }),
-                                ),
-                            );
+                            ),
+                        );
 
-                            yield* emitEvent({
-                                _tag: "ReviewComplete",
-                                approved: reviewResult.approved,
-                                critique: reviewResult.critique,
-                                cycle,
-                            });
+                    yield* sessionHandle.addCost(reviewCost);
+                    yield* broadcastState();
 
-                            if (!reviewResult.approved) {
-                                yield* emitEvent({
-                                    _tag: "Progress",
-                                    message: "AI review rejected. Starting revision...",
-                                    cycle,
-                                });
-                                return yield* step();
-                            }
+                    const decision = yield* vfs.getDecision();
+                    const comments = yield* vfs.getComments();
+                    const decisionValue = Option.getOrElse(decision, () => ({
+                        type: "rejected" as const,
+                        message: undefined as string | undefined,
+                    }));
+                    const approved = decisionValue.type === "approved";
 
-                            yield* emitEvent({
-                                _tag: "UserActionRequired",
-                                draft: newContent,
-                                cycle,
-                            });
+                    yield* emitEvent({
+                        _tag: "ReviewComplete",
+                        approved,
+                        critique:
+                            decisionValue.type === "rejected" && decisionValue.message
+                                ? decisionValue.message
+                                : `Reviewer left ${Chunk.size(comments)} comments.`,
+                        cycle,
+                    });
 
-                            const deferred = yield* Deferred.make<UserAction, UserCancel>();
-                            yield* Ref.set(userActionDeferred, deferred);
-
-                            const userAction = yield* Deferred.await(deferred);
-
-                            yield* emitEvent({
-                                _tag: "UserInput",
-                                content:
-                                    userAction.type === "approve"
-                                        ? "Approved"
-                                        : `Rejected: ${userAction.comment ?? "No comment"}`,
-                                cycle,
-                            });
-
-                            yield* Ref.update(stateRef, (s) =>
-                                s.add(
-                                    new UserFeedback({
-                                        action: userAction.type,
-                                        comment: userAction.comment,
-                                        timestamp: Date.now(),
-                                    }),
-                                ),
-                            );
-
-                            if (userAction.type === "reject") {
-                                yield* emitEvent({
-                                    _tag: "Progress",
-                                    message: "User requested changes. Starting revision...",
-                                    cycle,
-                                });
-                                return yield* step();
-                            }
-
-                            yield* emitEvent({
-                                _tag: "Progress",
-                                message: "Applying approved changes to project files...",
-                                cycle,
-                            });
-
-                            const editPrompt = editorTask.render({
-                                goal: options.prompt,
-                                approvedContent: newContent,
-                            });
-
-                            const { content: _editOutput, cost: editCost } = yield* llm
-                                .streamText(
-                                    {
-                                        model: writerModel,
-                                        system: editorTask.system,
-                                        prompt: editPrompt,
-                                        tools: edit_tools,
-                                        maxSteps: MAX_STEP_COUNT,
-                                    },
-                                    (chunk) => {
-                                        Runtime.runSync(runtime)(
-                                            Effect.all(
-                                                [
-                                                    Queue.offer(eventQueue, {
-                                                        _tag: "StreamChunk",
-                                                        content: chunk,
-                                                        phase: "editing",
-                                                    } as const),
-                                                ],
-                                                { discard: true },
-                                            ),
-                                        );
-                                    },
-                                    saveToolCall,
-                                )
-                                .pipe(
-                                    Effect.mapError(
-                                        (error) =>
-                                            new AgentLoopError({
-                                                cause: error,
-                                                message: error.message,
-                                                phase: "editing",
-                                            }),
-                                    ),
-                                );
-
-                            yield* sessionHandle.addCost(editCost);
-
-                            return newContent;
+                    if (!approved) {
+                        yield* emitEvent({
+                            _tag: "Progress",
+                            message: "AI review rejected. Starting revision...",
+                            cycle,
                         });
+                        yield* Ref.set(
+                            lastFeedbackRef,
+                            Option.some(
+                                decisionValue.type === "rejected" && decisionValue.message
+                                    ? decisionValue.message
+                                    : "Please address the review comments.",
+                            ),
+                        );
+                        return yield* step(cycle);
+                    }
 
-                    const workflowFiber = yield* step().pipe(
-                        Effect.tap((content) => sessionHandle.updateStatus("completed", content)),
-                        Effect.tapError((error) =>
-                            Effect.gen(function* () {
-                                if (error instanceof UserCancel) {
-                                    return yield* sessionHandle.updateStatus("cancelled");
-                                }
-                                const message = error instanceof Error ? error.message : String(error);
+                    yield* emitEvent({
+                        _tag: "UserActionRequired",
+                        diffs: Chunk.toArray(diffs),
+                        cycle,
+                    });
 
-                                yield* emitEvent({
+                    const deferred = yield* Deferred.make<UserAction, UserCancel>();
+                    yield* Ref.set(userActionDeferred, deferred);
+
+                    const userAction = yield* Deferred.await(deferred);
+
+                    yield* emitEvent({
+                        _tag: "UserInput",
+                        content:
+                            userAction.type === "approve"
+                                ? "Approved"
+                                : `Rejected: ${userAction.comment ?? "No comment"}`,
+                        cycle,
+                    });
+
+                    if (userAction.type === "reject") {
+                        yield* emitEvent({
+                            _tag: "Progress",
+                            message: "User requested changes. Starting revision...",
+                            cycle,
+                        });
+                        yield* Ref.set(lastFeedbackRef, Option.some(userAction.comment ?? "Please revise."));
+                        return yield* step(cycle);
+                    }
+
+                    const flushedFiles = yield* vfs.flush();
+
+                    return `Applied ${flushedFiles.length} file(s): ${flushedFiles.join(", ")}`;
+                });
+
+                const workflowFiber = yield* step(startCycle).pipe(
+                    Effect.tap((content) => sessionHandle.updateStatus("completed", content)),
+                    Effect.tapError(
+                        Effect.fn(function* (error) {
+                            if (error instanceof UserCancel) {
+                                return yield* sessionHandle.updateStatus("cancelled");
+                            }
+                            const message = error instanceof Error ? error.message : String(error);
+
+                            yield* emitEvent({
+                                _tag: "Error",
+                                message,
+                                cycle: 0,
+                            });
+                            return yield* sessionHandle
+                                .addEntry({
                                     _tag: "Error",
                                     message,
-                                    cycle: 0,
-                                });
-                                return yield* sessionHandle
-                                    .addEntry({
-                                        _tag: "Error",
-                                        message,
-                                        phase: "phase" in error ? String(error.phase) : undefined,
-                                    })
-                                    .pipe(Effect.andThen(sessionHandle.updateStatus("failed")));
-                            }),
-                        ),
-                        Effect.ensuring(
-                            Queue.shutdown(eventQueue).pipe(
-                                Effect.andThen(Effect.logDebug("Event queue shutdown")),
-                                Effect.andThen(sessionHandle.close()),
-                            ),
-                        ),
-                        Effect.fork,
-                    );
-
-                    return {
-                        events: Stream.fromQueue(eventQueue),
-                        sessionId: sessionHandle.id,
-                        sessionPath: sessionHandle.path,
-                        result: Effect.gen(function* () {
-                            const content = yield* Fiber.join(workflowFiber);
-                            const finalState = yield* Ref.get(stateRef);
-                            const totalCost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
-                            return {
-                                finalContent: content,
-                                iterations: finalState.iterationCount,
-                                state: finalState,
-                                totalCost,
-                                sessionId: sessionHandle.id,
-                                sessionPath: sessionHandle.path,
-                            } satisfies RunResult;
+                                    phase: "phase" in error ? String(error.phase) : undefined,
+                                })
+                                .pipe(Effect.andThen(sessionHandle.updateStatus("failed")));
                         }),
+                    ),
+                    Effect.ensuring(
+                        Queue.shutdown(eventQueue).pipe(
+                            Effect.andThen(Effect.logDebug("Event queue shutdown")),
+                            Effect.andThen(sessionHandle.close()),
+                        ),
+                    ),
+                    Effect.fork,
+                );
 
-                        /**
-                         * Submit user action to continue the workflow.
-                         */
-                        submitUserAction: (action: UserAction) =>
-                            Effect.gen(function* () {
-                                const deferred = yield* Ref.get(userActionDeferred);
-                                if (!deferred) {
-                                    return yield* new NoUserActionPending({
-                                        message:
-                                            "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
-                                    });
-                                }
-                                const isDone = yield* Deferred.isDone(deferred);
-                                if (isDone) {
-                                    return yield* new NoUserActionPending({
-                                        message: "User action was already submitted for this cycle.",
-                                    });
-                                }
-                                yield* Deferred.succeed(deferred, action);
-                            }),
+                return {
+                    events: Stream.fromQueue(eventQueue),
+                    sessionId: sessionHandle.id,
+                    sessionPath: sessionHandle.path,
+                    result: Effect.gen(function* () {
+                        const content = yield* Fiber.join(workflowFiber);
+                        const cycle = yield* sessionHandle.getIterations();
+                        const totalCost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
+                        return {
+                            finalContent: content,
+                            iterations: cycle,
+                            totalCost,
+                            sessionId: sessionHandle.id,
+                            sessionPath: sessionHandle.path,
+                        } satisfies RunResult;
+                    }),
 
-                        /**
-                         * Cancel the workflow and cleanup resources
-                         */
-                        cancel: () =>
-                            Effect.gen(function* () {
-                                const deferred = yield* Ref.get(userActionDeferred);
-                                if (deferred) {
-                                    yield* Deferred.fail(deferred, new UserCancel());
-                                }
-                                yield* Fiber.interrupt(workflowFiber);
-                                yield* Queue.shutdown(eventQueue);
-                            }),
+                    submitUserAction: Effect.fn("submitUserAction")(function* (action: UserAction) {
+                        const deferred = yield* Ref.get(userActionDeferred);
+                        if (!deferred) {
+                            return yield* new NoUserActionPending({
+                                message:
+                                    "No user action is pending. The agent may have already completed or not yet reached a user feedback point.",
+                            });
+                        }
+                        const isDone = yield* Deferred.isDone(deferred);
+                        if (isDone) {
+                            return yield* new NoUserActionPending({
+                                message: "User action was already submitted for this cycle.",
+                            });
+                        }
+                        yield* Deferred.succeed(deferred, action);
+                    }),
 
-                        /**
-                         * Get the current workflow state and cost.
-                         * Useful for retrieving the last draft when an error occurs.
-                         */
-                        getCurrentState: () =>
-                            Effect.gen(function* () {
-                                const workflowState = yield* Ref.get(stateRef);
-                                const totalCost = yield* sessionHandle
-                                    .getTotalCost()
-                                    .pipe(Effect.orElseSucceed(() => 0));
-                                return {
-                                    workflowState,
-                                    totalCost,
-                                };
-                            }),
-                    };
-                }),
+                    cancel: Effect.fn("cancel")(function* () {
+                        const deferred = yield* Ref.get(userActionDeferred);
+                        if (deferred) {
+                            yield* Deferred.fail(deferred, new UserCancel());
+                        }
+                        yield* Fiber.interrupt(workflowFiber);
+                        yield* Queue.shutdown(eventQueue);
+                    }),
+
+                    getCurrentState: Effect.fn("getCurrentState")(function* () {
+                        const cycle = yield* sessionHandle.getIterations();
+                        const totalCost = yield* sessionHandle.getTotalCost().pipe(Effect.orElseSucceed(() => 0));
+                        return {
+                            cycle,
+                            totalCost,
+                        };
+                    }),
+                };
+            }),
         };
     }),
-    dependencies: [Prompts.Default, Config.Default, Session.Default, LLM.Default, Web.Default],
+    dependencies: [Prompts.Default, Config.Default, Session.Default, LLM.Default, Web.Default, VFS.Default],
 }) {}

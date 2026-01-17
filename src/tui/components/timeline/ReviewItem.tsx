@@ -10,18 +10,18 @@ export const ReviewItem = ({ event }: ReviewItemProps) => {
             style={{
                 marginTop: 1,
                 marginBottom: 1,
+                borderStyle: "rounded",
                 borderColor: event.approved ? "green" : "yellow",
                 flexDirection: "column",
                 padding: 1,
             }}
         >
-            <text>{event.approved ? "REVIEW PASSED" : "REVIEW REJECTED"}</text>
-            {!event.approved && (
-                <box style={{ flexDirection: "column", marginTop: 1 }}>
-                    <text>Critique:</text>
-                    <text>{event.critique}</text>
-                </box>
-            )}
+            <text style={{ marginBottom: 1 }}>
+                <strong fg={event.approved ? "green" : "yellow"}>
+                    Reviewer {event.approved ? "(PASSED)" : "(REQUESTED CHANGES)"}
+                </strong>
+            </text>
+            <text>{event.critique}</text>
         </box>
     );
 };

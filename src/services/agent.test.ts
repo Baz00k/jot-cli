@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Chunk, Effect, Layer, Ref, Stream } from "effect";
+import { Chunk, Effect, Layer, Option, Ref, Stream } from "effect";
 import type { MaxIterationsReached } from "@/domain/errors";
+import type { FilePatch } from "@/domain/vfs";
 import { Agent, type AgentEvent } from "@/services/agent";
 import { TestConfigLayer } from "@/services/config";
 import { TestLLM, TestLLMLayer } from "@/services/llm";
 import { TestAppLogger } from "@/services/logger";
 import { TestPromptsLayer } from "@/services/prompts";
-import { TestSessionLayer } from "@/services/session";
+import { Session, SessionData, TestSessionLayer } from "@/services/session";
 import { VFS } from "@/services/vfs";
 import { TestWebLayer } from "@/services/web";
 import { TestProjectFilesLayer } from "@/test/mocks/project-files";
@@ -43,8 +44,8 @@ describe("Agent Service", () => {
             return Effect.succeed({ content: "Draft content", cost: 0 });
         });
 
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -87,8 +88,8 @@ describe("Agent Service", () => {
         streamTextMock.mockImplementation(() => Effect.succeed({ content: "Fallback", cost: 0 }));
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 1", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.reject();
                 return { content: "Rejected", cost: 0 };
@@ -96,8 +97,8 @@ describe("Agent Service", () => {
         );
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 2", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -129,8 +130,8 @@ describe("Agent Service", () => {
 
     test("stops at max iterations", async () => {
         const streamTextMock = mock();
-        streamTextMock.mockImplementation(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementation(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.reject();
                 return { content: "Draft", cost: 0 };
@@ -145,7 +146,7 @@ describe("Agent Service", () => {
             const result = yield* runner.result.pipe(Effect.flip);
 
             expect(result._tag).toBe("MaxIterationsReached");
-            expect((result as MaxIterationsReached).iterations).toBe(2);
+            expect((result as MaxIterationsReached).iterations).toBe(3);
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
@@ -156,8 +157,8 @@ describe("Agent Service", () => {
         streamTextMock.mockImplementation(() => Effect.succeed({ content: "Fallback", cost: 0 }));
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 1", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -165,8 +166,8 @@ describe("Agent Service", () => {
         );
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 2", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -209,8 +210,8 @@ describe("Agent Service", () => {
         streamTextMock.mockImplementation(() => Effect.succeed({ content: "Fallback", cost: 0 }));
 
         streamTextMock.mockImplementationOnce(() => Effect.succeed({ content: "Draft 1", cost: 0 }));
-        streamTextMock.mockImplementationOnce(() =>
-            Effect.gen(function* () {
+        streamTextMock.mockImplementationOnce(
+            Effect.fn(function* () {
                 const vfs = yield* VFS;
                 yield* vfs.approve();
                 return { content: "Approved", cost: 0 };
@@ -222,12 +223,12 @@ describe("Agent Service", () => {
             const agent = yield* Agent;
             const runner = yield* agent.run({ prompt: "Do work" });
 
-            const stateRef = yield* Ref.make<any | undefined>(undefined);
+            const stateRef = yield* Ref.make<{ cycle: number; totalCost: number } | undefined>(undefined);
 
             yield* Stream.runCollect(
                 runner.events.pipe(
-                    Stream.tap((event: AgentEvent) =>
-                        Effect.gen(function* () {
+                    Stream.tap(
+                        Effect.fn(function* (event: AgentEvent) {
                             if (event._tag === "DraftComplete") {
                                 const current = yield* Ref.get(stateRef);
                                 if (!current) {
@@ -247,9 +248,116 @@ describe("Agent Service", () => {
 
             const capturedState = yield* Ref.get(stateRef);
             expect(capturedState).toBeTruthy();
-            expect(capturedState?.workflowState.iterationCount).toBe(1);
+            expect(capturedState?.cycle).toBe(1);
         });
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
+    });
+
+    test("resumes session and skips vfs reset if cycle > 1", async () => {
+        const streamTextMock = mock();
+        streamTextMock.mockImplementation(() => Effect.succeed({ content: "Resumed content", cost: 0 }));
+        TestLLM.streamText = streamTextMock;
+
+        const vfsResetMock = mock(() => Effect.void);
+
+        const MockVFSLayer = Layer.succeed(VFS, {
+            reset: vfsResetMock,
+            writeFile: () => Effect.void,
+            editFile: () => Effect.void,
+            getSummary: () => Effect.succeed({ files: [], fileCount: 0, commentCount: 0 }),
+            getDiffs: () => Effect.succeed(Chunk.empty<FilePatch>()),
+            getComments: () => Effect.succeed(Chunk.empty()),
+            getDecision: () => Effect.succeed(Option.none()),
+            flush: () => Effect.succeed([]),
+            readFile: () => Effect.fail(new Error("Not implemented")),
+            addComment: () => Effect.void,
+            approve: () => Effect.void,
+            reject: () => Effect.void,
+            getFileDiff: () => Effect.dieMessage("Not implemented"),
+            listFiles: () => Effect.succeed([]),
+            readDirectory: () => Effect.succeed([]),
+        } as unknown as typeof VFS.Service);
+
+        const sessionMock = {
+            create: mock(),
+            resume: mock(() =>
+                Effect.succeed({
+                    id: "test-session",
+                    path: "/tmp/test-session.json",
+                    addEntry: () => Effect.void,
+                    addAgentEvent: () => Effect.void,
+                    addToolCall: () => Effect.void,
+                    updateStatus: () => Effect.void,
+                    addCost: () => Effect.void,
+                    getTotalCost: () => Effect.succeed(0),
+                    getToolCalls: () => Effect.succeed([]),
+                    updateIterations: () => Effect.void,
+                    getIterations: () => Effect.succeed(1),
+                    flush: () => Effect.void,
+                    close: () => Effect.void,
+                }),
+            ),
+            list: mock(),
+            get: mock(() =>
+                Effect.succeed(
+                    new SessionData({
+                        id: "test-session",
+                        modelWriter: "gpt-4",
+                        modelReviewer: "claude-3",
+                        reasoning: true,
+                        reasoningEffort: "high",
+                        maxIterations: 5,
+                        startedAt: Date.now(),
+                        updatedAt: Date.now(),
+                        iterations: 1,
+                        totalCost: 0,
+                        status: "running",
+                        entries: [
+                            {
+                                _tag: "UserInput",
+                                prompt: "Test prompt",
+                                timestamp: Date.now(),
+                            },
+                            {
+                                _tag: "ToolCall",
+                                name: "write_file",
+                                input: { filePath: "/test.txt", content: "hello" },
+                                output: "ok",
+                                timestamp: Date.now(),
+                            },
+                        ],
+                    }),
+                ),
+            ),
+            getSessionsDir: mock(),
+        } as unknown as typeof Session.Service;
+
+        const TestLayerWithResume = Agent.DefaultWithoutDependencies.pipe(
+            Layer.provideMerge(
+                Layer.mergeAll(
+                    TestConfigLayer,
+                    TestPromptsLayer,
+                    TestAppLogger,
+                    Layer.succeed(Session, sessionMock),
+                    TestLLMLayer,
+                    MockVFSLayer,
+                    TestWebLayer,
+                    TestProjectFilesLayer,
+                ),
+            ),
+        );
+
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            const runner = yield* agent.run({ sessionId: "test-session", maxIterations: 2 });
+
+            yield* Stream.runDrain(runner.events);
+            yield* runner.result.pipe(Effect.ignore);
+        });
+
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayerWithResume)));
+
+        expect(vfsResetMock).not.toHaveBeenCalled();
     });
 });

@@ -12,10 +12,14 @@ export const DraftItem = ({ event, cycle }: DraftItemProps) => {
                 marginTop: 1,
                 marginBottom: 1,
                 flexDirection: "column",
+                borderStyle: "rounded",
+                borderColor: "blue",
                 padding: 1,
             }}
         >
-            <text>DRAFT (Cycle {cycle})</text>
+            <text style={{ marginBottom: 1 }}>
+                <strong fg="blue">Writer (Cycle {cycle})</strong>
+            </text>
             <text>{event.content}</text>
         </box>
     );

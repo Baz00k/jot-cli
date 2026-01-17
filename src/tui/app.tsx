@@ -1,30 +1,35 @@
 import { createCliRenderer } from "@opentui/core";
-import { createRoot, useKeyboard } from "@opentui/react";
+import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
 import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
 import { Effect } from "effect";
 import { StrictMode, useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
 import { SettingsModal } from "@/tui/components/SettingsModal";
+import { Sidebar } from "@/tui/components/Sidebar";
 import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
 import { EffectProvider } from "@/tui/context/EffectContext";
 import { RendererProvider } from "@/tui/context/RendererContext";
+import { ThemeProvider } from "@/tui/context/ThemeContext";
+import { Keymap } from "@/tui/keyboard/keymap";
 import { TaskInput } from "./components/TaskInput";
 import { Timeline } from "./components/Timeline";
+import { areKeyBindingsEqual } from "./keyboard/utils";
 
 function AgentWorkflow() {
-    const { state, start, submitAction, cancel } = useAgentContext();
     const dialog = useDialog();
+    const renderer = useRenderer();
+    const { state, start, submitAction, cancel } = useAgentContext();
     const isDialogOpen = useDialogState((s) => s.isOpen);
 
     const [activeFocus, setActiveFocus] = useState<"input" | "timeline">("input");
 
-    useKeyboard((key) => {
+    useKeyboard((keyEvent) => {
         if (isDialogOpen) return;
 
-        if (key.name === "f2") {
+        if (areKeyBindingsEqual(keyEvent, Keymap.Global.Settings)) {
             dialog.prompt({
                 content: (ctx) => <SettingsModal {...ctx} />,
                 size: "large",
@@ -32,14 +37,19 @@ function AgentWorkflow() {
             return;
         }
 
-        if (key.name === "tab") {
+        if (areKeyBindingsEqual(keyEvent, Keymap.Navigation.FocusNext)) {
             setActiveFocus((prev) => (prev === "input" ? "timeline" : "input"));
         }
+
         if (state.phase === "awaiting-user" && activeFocus !== "timeline") {
             setActiveFocus("timeline");
         }
-        if (key.name === "escape" && state.phase !== "idle") {
+
+        if (areKeyBindingsEqual(keyEvent, Keymap.Global.Cancel)) {
             cancel();
+            renderer.setTerminalTitle("");
+            renderer.destroy();
+            process.exit(0);
         }
     });
 
@@ -64,20 +74,23 @@ function AgentWorkflow() {
         state.phase !== "cancelled";
 
     return (
-        <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
-            <Timeline
-                focused={!isDialogOpen && activeFocus === "timeline"}
-                onApprove={handleApprove}
-                onReject={handleReject}
-            />
+        <box style={{ width: "100%", height: "100%", flexDirection: "row" }}>
+            <box style={{ flexGrow: 1, flexDirection: "column" }}>
+                <Timeline
+                    focused={!isDialogOpen && activeFocus === "timeline"}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                />
 
-            <TaskInput
-                onTaskSubmit={handleTaskSubmit}
-                isRunning={isAgentRunning}
-                focused={!isDialogOpen && activeFocus === "input"}
-            />
+                <TaskInput
+                    onTaskSubmit={handleTaskSubmit}
+                    isRunning={isAgentRunning}
+                    focused={!isDialogOpen && activeFocus === "input"}
+                />
 
-            <StatusBar isRunning={isAgentRunning} disabled={isDialogOpen} />
+                <StatusBar isRunning={isAgentRunning} disabled={isDialogOpen} />
+            </box>
+            <Sidebar />
         </box>
     );
 }
@@ -88,13 +101,15 @@ function App() {
         <ErrorBoundary>
             <EffectProvider>
                 <ConfigProvider>
-                    <DialogProvider size="large">
-                        <AgentProvider>
-                            <StrictMode>
-                                <AgentWorkflow />
-                            </StrictMode>
-                        </AgentProvider>
-                    </DialogProvider>
+                    <ThemeProvider>
+                        <DialogProvider size="large">
+                            <AgentProvider>
+                                <StrictMode>
+                                    <AgentWorkflow />
+                                </StrictMode>
+                            </AgentProvider>
+                        </DialogProvider>
+                    </ThemeProvider>
                 </ConfigProvider>
             </EffectProvider>
         </ErrorBoundary>

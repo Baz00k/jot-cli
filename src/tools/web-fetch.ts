@@ -21,6 +21,7 @@ export const webFetchTool = tool({
     description: dedent`
         Fetches content from a specified URL and converts it to the requested format.
         Use this tool when you need to retrieve and analyze web content.
+        Supports HTML, plain text, and PDF files. Large responses are truncated.
     `,
     inputSchema: jsonSchema<WebFetchInput>(JSONSchema.make(webFetchSchema)),
     execute: async ({ url, format, timeout }) => {

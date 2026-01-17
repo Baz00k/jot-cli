@@ -30,7 +30,6 @@ const ErrorEntry = Schema.TaggedStruct("Error", {
 const SessionEntryBase = Schema.Union(UserInput, AgentEventEntry, ToolCall, ModelResponse, ErrorEntry);
 export type SessionEntryInput = Schema.Schema.Type<typeof SessionEntryBase>;
 
-// Full entry schema with timestamp - used for storage
 const withTimestamp = <T extends Schema.Struct.Fields>(s: Schema.Struct<T>) =>
     Schema.Struct({ ...s.fields, timestamp: Schema.Number });
 
@@ -90,11 +89,135 @@ export interface SessionHandle {
     readonly getTotalCost: () => Effect.Effect<number>;
     readonly getToolCalls: () => Effect.Effect<Array<{ name: string; input: unknown; output: unknown }>>;
     readonly updateIterations: (iterations: number) => Effect.Effect<void>;
+    readonly getIterations: () => Effect.Effect<number>;
     readonly flush: () => Effect.Effect<void>;
     readonly close: () => Effect.Effect<void>;
 }
 
 const SAVE_INTERVAL_MS = 500;
+
+const makeSessionHandle = (fs: FileSystem.FileSystem, id: string, sessionPath: string, initialData: SessionData) =>
+    Effect.gen(function* () {
+        const stateRef = yield* Ref.make(initialData);
+        const dirtyRef = yield* Ref.make(true);
+
+        const doSave = Effect.gen(function* () {
+            const isDirty = yield* Ref.getAndSet(dirtyRef, false);
+            if (!isDirty) return;
+
+            const data = yield* Ref.get(stateRef);
+            yield* fs
+                .writeFileString(sessionPath, JSON.stringify(data, null, 2))
+                .pipe(Effect.catchAll((error) => Effect.logWarning(`Session save failed: ${error}`)));
+        }).pipe(Effect.uninterruptible);
+
+        const backgroundSaver = Effect.forever(
+            Effect.sleep(`${SAVE_INTERVAL_MS} millis`).pipe(Effect.zipRight(doSave)),
+        );
+
+        const saverFiber = yield* Effect.forkDaemon(backgroundSaver);
+
+        const markDirty = Ref.set(dirtyRef, true);
+
+        const updateState = (f: (data: SessionData) => SessionData): Effect.Effect<void> =>
+            Ref.update(stateRef, f).pipe(Effect.zipRight(markDirty));
+
+        const flush = Effect.gen(function* () {
+            yield* Ref.set(dirtyRef, true);
+            yield* doSave;
+        });
+
+        const close = Effect.gen(function* () {
+            yield* Fiber.interrupt(saverFiber);
+            yield* flush;
+        });
+
+        const handle: SessionHandle = {
+            id,
+            path: sessionPath,
+
+            addEntry: (entry) =>
+                updateState((data) => {
+                    const timestamp = Date.now();
+                    const fullEntry = { ...entry, timestamp } as SessionEntry;
+                    return new SessionData({
+                        ...data,
+                        updatedAt: timestamp,
+                        entries: [...data.entries, fullEntry],
+                    });
+                }),
+
+            addAgentEvent: (event) =>
+                updateState((data) => {
+                    const timestamp = Date.now();
+                    return new SessionData({
+                        ...data,
+                        updatedAt: timestamp,
+                        entries: [...data.entries, { _tag: "AgentEvent", event, timestamp }],
+                    });
+                }),
+
+            addToolCall: (name, input, output) =>
+                updateState((data) => {
+                    const timestamp = Date.now();
+                    return new SessionData({
+                        ...data,
+                        updatedAt: timestamp,
+                        entries: [...data.entries, { _tag: "ToolCall", name, input, output, timestamp }],
+                    });
+                }),
+
+            updateStatus: (status, finalContent) =>
+                updateState((data) => {
+                    const now = Date.now();
+                    return new SessionData({
+                        ...data,
+                        status,
+                        updatedAt: now,
+                        completedAt: status !== "running" ? now : data.completedAt,
+                        finalContent: finalContent ?? data.finalContent,
+                    });
+                }),
+
+            addCost: (cost) =>
+                updateState(
+                    (data) =>
+                        new SessionData({
+                            ...data,
+                            totalCost: data.totalCost + cost,
+                            updatedAt: Date.now(),
+                        }),
+                ),
+
+            getTotalCost: () => Ref.get(stateRef).pipe(Effect.map((d) => d.totalCost)),
+
+            getToolCalls: () =>
+                Ref.get(stateRef).pipe(
+                    Effect.map((d) =>
+                        d.entries
+                            .filter((e) => e._tag === "ToolCall")
+                            .map((e) => ({ name: e.name, input: e.input, output: e.output })),
+                    ),
+                ),
+
+            updateIterations: (iterations) =>
+                updateState(
+                    (data) =>
+                        new SessionData({
+                            ...data,
+                            iterations,
+                            updatedAt: Date.now(),
+                        }),
+                ),
+
+            getIterations: () => Ref.get(stateRef).pipe(Effect.map((d) => d.iterations)),
+
+            flush: () => flush,
+            close: () => close,
+        };
+
+        return handle;
+    });
 
 export class Session extends Effect.Service<Session>()("services/session", {
     effect: Effect.gen(function* () {
@@ -136,125 +259,35 @@ export class Session extends Effect.Service<Session>()("services/session", {
                         ],
                     });
 
-                    const stateRef = yield* Ref.make(initialData);
-                    const dirtyRef = yield* Ref.make(true);
-
-                    const doSave = Effect.gen(function* () {
-                        const isDirty = yield* Ref.getAndSet(dirtyRef, false);
-                        if (!isDirty) return;
-
-                        const data = yield* Ref.get(stateRef);
-                        yield* fs
-                            .writeFileString(sessionPath, JSON.stringify(data, null, 2))
-                            .pipe(Effect.catchAll((error) => Effect.logWarning(`Session save failed: ${error}`)));
-                    }).pipe(Effect.uninterruptible);
-
-                    const backgroundSaver = Effect.forever(
-                        Effect.sleep(`${SAVE_INTERVAL_MS} millis`).pipe(Effect.zipRight(doSave)),
-                    );
-
-                    const saverFiber = yield* Effect.forkDaemon(backgroundSaver);
-
-                    const markDirty = Ref.set(dirtyRef, true);
-
-                    const updateState = (f: (data: SessionData) => SessionData): Effect.Effect<void> =>
-                        Ref.update(stateRef, f).pipe(Effect.zipRight(markDirty));
+                    yield* fs
+                        .writeFileString(sessionPath, JSON.stringify(initialData, null, 2))
+                        .pipe(Effect.catchAll((error) => Effect.logWarning(`Initial session save failed: ${error}`)));
 
                     yield* Effect.logDebug(`Created session: ${id}`);
 
-                    const flush = Effect.gen(function* () {
-                        yield* Ref.set(dirtyRef, true);
-                        yield* doSave;
+                    return yield* makeSessionHandle(fs, id, sessionPath, initialData);
+                }),
+
+            resume: (id: string): Effect.Effect<SessionHandle, UserDirError | Error> =>
+                Effect.gen(function* () {
+                    const sessionPath = yield* userDirs.getPath("data", DIR_NAME.SESSIONS, `${id}.json`);
+                    const json = yield* fs
+                        .readFileString(sessionPath)
+                        .pipe(
+                            Effect.catchAll((error) => Effect.fail(new Error(`Failed to read session file: ${error}`))),
+                        );
+                    const initialData = yield* Effect.try(() => JSON.parse(json)).pipe(
+                        Effect.flatMap(Schema.decodeUnknown(SessionData)),
+                        Effect.catchAll((error) => Effect.fail(new Error(`Failed to parse session data: ${error}`))),
+                    );
+
+                    const dataWithRunningStatus = new SessionData({
+                        ...initialData,
+                        status: "running",
                     });
 
-                    const close = Effect.gen(function* () {
-                        yield* Fiber.interrupt(saverFiber);
-                        yield* flush;
-                    });
-
-                    const handle: SessionHandle = {
-                        id,
-                        path: sessionPath,
-
-                        addEntry: (entry) =>
-                            updateState((data) => {
-                                const timestamp = Date.now();
-                                const fullEntry = { ...entry, timestamp } as SessionEntry;
-                                return new SessionData({
-                                    ...data,
-                                    updatedAt: timestamp,
-                                    entries: [...data.entries, fullEntry],
-                                });
-                            }),
-
-                        addAgentEvent: (event) =>
-                            updateState((data) => {
-                                const timestamp = Date.now();
-                                return new SessionData({
-                                    ...data,
-                                    updatedAt: timestamp,
-                                    entries: [...data.entries, { _tag: "AgentEvent", event, timestamp }],
-                                });
-                            }),
-
-                        addToolCall: (name, input, output) =>
-                            updateState((data) => {
-                                const timestamp = Date.now();
-                                return new SessionData({
-                                    ...data,
-                                    updatedAt: timestamp,
-                                    entries: [...data.entries, { _tag: "ToolCall", name, input, output, timestamp }],
-                                });
-                            }),
-
-                        updateStatus: (status, finalContent) =>
-                            updateState((data) => {
-                                const now = Date.now();
-                                return new SessionData({
-                                    ...data,
-                                    status,
-                                    updatedAt: now,
-                                    completedAt: status !== "running" ? now : data.completedAt,
-                                    finalContent: finalContent ?? data.finalContent,
-                                });
-                            }),
-
-                        addCost: (cost) =>
-                            updateState(
-                                (data) =>
-                                    new SessionData({
-                                        ...data,
-                                        totalCost: data.totalCost + cost,
-                                        updatedAt: Date.now(),
-                                    }),
-                            ),
-
-                        getTotalCost: () => Ref.get(stateRef).pipe(Effect.map((d) => d.totalCost)),
-
-                        getToolCalls: () =>
-                            Ref.get(stateRef).pipe(
-                                Effect.map((d) =>
-                                    d.entries
-                                        .filter((e) => e._tag === "ToolCall")
-                                        .map((e) => ({ name: e.name, input: e.input, output: e.output })),
-                                ),
-                            ),
-
-                        updateIterations: (iterations) =>
-                            updateState(
-                                (data) =>
-                                    new SessionData({
-                                        ...data,
-                                        iterations,
-                                        updatedAt: Date.now(),
-                                    }),
-                            ),
-
-                        flush: () => flush,
-                        close: () => close,
-                    };
-
-                    return handle;
+                    yield* Effect.logDebug(`Resumed session: ${id}`);
+                    return yield* makeSessionHandle(fs, id, sessionPath, dataWithRunningStatus);
                 }),
 
             list: () =>
@@ -269,7 +302,8 @@ export class Session extends Effect.Service<Session>()("services/session", {
                     for (const file of files) {
                         const filePath = yield* userDirs.getPath("data", DIR_NAME.SESSIONS, file);
                         const content = yield* fs.readFileString(filePath).pipe(
-                            Effect.flatMap((json) => Effect.try(() => JSON.parse(json) as SessionData)),
+                            Effect.flatMap((json) => Effect.try(() => JSON.parse(json))),
+                            Effect.flatMap(Schema.decodeUnknown(SessionData)),
                             Effect.catchAll(() => Effect.succeed(null)),
                         );
                         if (content) {
@@ -284,7 +318,8 @@ export class Session extends Effect.Service<Session>()("services/session", {
                 Effect.gen(function* () {
                     const sessionPath = yield* userDirs.getPath("data", DIR_NAME.SESSIONS, `${id}.json`);
                     const content = yield* fs.readFileString(sessionPath).pipe(
-                        Effect.flatMap((json) => Effect.try(() => JSON.parse(json) as SessionData)),
+                        Effect.flatMap((json) => Effect.try(() => JSON.parse(json))),
+                        Effect.flatMap(Schema.decodeUnknown(SessionData)),
                         Effect.catchAll(() => Effect.succeed(null)),
                     );
                     return content;
@@ -299,23 +334,46 @@ export class Session extends Effect.Service<Session>()("services/session", {
 
 export const TestSession = new Session({
     create: () =>
-        Effect.succeed({
-            id: "test-session",
-            path: "/tmp/test-session.json",
-            addEntry: (_entry) => Effect.void,
-            addAgentEvent: (_event) => Effect.void,
-            addToolCall: (_name, _input, _output) => Effect.void,
-            updateStatus: (_status, _finalContent) => Effect.void,
-            addCost: (_cost) => Effect.void,
-            getTotalCost: () => Effect.succeed(0),
-            getToolCalls: () => Effect.succeed([]),
-            updateIterations: (_iterations) => Effect.void,
-            flush: () => Effect.void,
-            close: () => Effect.void,
+        Effect.gen(function* () {
+            const iterationsRef = yield* Ref.make(0);
+            return {
+                id: "test-session",
+                path: "/tmp/test-session.json",
+                addEntry: (_entry) => Effect.void,
+                addAgentEvent: (_event) => Effect.void,
+                addToolCall: (_name, _input, _output) => Effect.void,
+                updateStatus: (_status, _finalContent) => Effect.void,
+                addCost: (_cost) => Effect.void,
+                getTotalCost: () => Effect.succeed(0),
+                getToolCalls: () => Effect.succeed([]),
+                updateIterations: (i) => Ref.set(iterationsRef, i),
+                getIterations: () => Ref.get(iterationsRef),
+                flush: () => Effect.void,
+                close: () => Effect.void,
+            };
         }),
     list: () => Effect.succeed([]),
     get: () => Effect.succeed(null),
     getSessionsDir: () => Effect.succeed("/tmp/sessions"),
+    resume: () =>
+        Effect.gen(function* () {
+            const iterationsRef = yield* Ref.make(0);
+            return {
+                id: "test-session",
+                path: "/tmp/test-session.json",
+                addEntry: (_entry) => Effect.void,
+                addAgentEvent: (_event) => Effect.void,
+                addToolCall: (_name, _input, _output) => Effect.void,
+                updateStatus: (_status, _finalContent) => Effect.void,
+                addCost: (_cost) => Effect.void,
+                getTotalCost: () => Effect.succeed(0),
+                getToolCalls: () => Effect.succeed([]),
+                updateIterations: (i) => Ref.set(iterationsRef, i),
+                getIterations: () => Ref.get(iterationsRef),
+                flush: () => Effect.void,
+                close: () => Effect.void,
+            };
+        }),
 });
 
 export const TestSessionLayer = Layer.succeed(Session, TestSession);

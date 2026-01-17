@@ -1,6 +1,10 @@
 import { useKeyboard } from "@opentui/react";
-import { useState } from "react";
+import { useDialog } from "@opentui-ui/dialog/react";
+import { DiffReviewModal } from "@/tui/components/DiffReviewModal";
+import { FeedbackModal } from "@/tui/components/FeedbackModal";
+import { useTheme } from "@/tui/context/ThemeContext";
 import type { PendingUserAction } from "@/tui/hooks/useAgent";
+import { Keymap } from "@/tui/keyboard/keymap";
 
 interface FeedbackWidgetProps {
     pendingAction: PendingUserAction;
@@ -10,66 +14,66 @@ interface FeedbackWidgetProps {
 }
 
 export const FeedbackWidget = ({ pendingAction, onApprove, onReject, focused }: FeedbackWidgetProps) => {
-    const [rejectMode, setRejectMode] = useState(false);
-    const [comment, setComment] = useState("");
+    const dialog = useDialog();
+    const { theme } = useTheme();
+
+    const openReviewModal = () => {
+        dialog.prompt({
+            content: (ctx) => (
+                <DiffReviewModal {...ctx} diffs={pendingAction.diffs} onApprove={onApprove} onReject={onReject} />
+            ),
+            size: "full",
+            style: {
+                padding: 0,
+            },
+        });
+    };
+
+    const openRejectModal = () => {
+        dialog.prompt({
+            content: (ctx) => <FeedbackModal {...ctx} onSubmit={onReject} />,
+            size: "medium",
+        });
+    };
 
     useKeyboard((key) => {
         if (!focused) return;
 
-        if (!rejectMode) {
-            if (key.name === "y") onApprove();
-            else if (key.name === "n") setRejectMode(true);
-        } else {
-            if (key.name === "return") {
-                onReject(comment);
-                setRejectMode(false);
-                setComment("");
-            } else if (key.name === "escape") {
-                setRejectMode(false);
-                setComment("");
-            } else if (key.name === "backspace") {
-                setComment((prev) => prev.slice(0, -1));
-            } else if (key.name === "space") {
-                setComment((prev) => `${prev} `);
-            } else if (key.name?.length === 1) {
-                setComment((prev) => prev + key.name);
-            }
-        }
+        if (key.name === Keymap.Feedback.Approve.name) onApprove();
+        else if (key.name === Keymap.Feedback.Reject.name) openRejectModal();
+        else if (key.name === Keymap.DiffView.ToggleView.name) openReviewModal();
     });
 
     return (
         <box
             style={{
                 marginTop: 1,
-                borderStyle: "double",
-                borderColor: focused ? "green" : "magenta",
+                borderStyle: "rounded",
+                borderColor: focused ? theme.successColor : theme.secondaryColor,
                 flexDirection: "column",
                 padding: 1,
             }}
         >
-            <text>
-                <strong fg={focused ? "green" : "magenta"}>
+            <text style={{ marginBottom: 1 }}>
+                <strong fg={focused ? theme.successColor : theme.secondaryColor}>
                     {focused ? "▶ USER ACTION REQUIRED" : "USER ACTION REQUIRED (Press Tab to Focus)"}
                 </strong>
             </text>
 
-            <text>Draft (Cycle {pendingAction.cycle}) is ready for review.</text>
+            <text>
+                Cycle {pendingAction.cycle}: The agent has proposed changes to {pendingAction.diffs.length} file(s).
+            </text>
 
-            <box style={{ marginTop: 1 }}>
-                {rejectMode ? (
-                    <box style={{ flexDirection: "column" }}>
-                        <text>Reason for changes:</text>
-                        <box style={{ borderStyle: "single", borderColor: "gray" }}>
-                            <text>{comment}█</text>
-                        </box>
-                        <text fg="gray">[Enter] Submit [Esc] Cancel</text>
-                    </box>
-                ) : (
-                    <text>
-                        Approve? <strong fg="green">[y] Yes</strong> /{" "}
-                        <strong fg="red">[n] No (Request Changes)</strong>
-                    </text>
-                )}
+            <box style={{ marginTop: 1, flexDirection: "column" }}>
+                <text>
+                    <strong fg={theme.primaryColor}>[{Keymap.DiffView.ToggleView.label}] View Changes (Diff)</strong>
+                </text>
+                <text>
+                    <strong fg={theme.successColor}>[{Keymap.Feedback.Approve.label}] Approve & Apply</strong>
+                </text>
+                <text>
+                    <strong fg={theme.errorColor}>[{Keymap.Feedback.Reject.label}] Reject & Request Changes</strong>
+                </text>
             </box>
         </box>
     );

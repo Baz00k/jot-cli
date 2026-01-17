@@ -1,5 +1,6 @@
 import { Effect, Fiber, type ManagedRuntime, Stream } from "effect";
 import { useCallback, useEffect, useReducer, useRef } from "react";
+import type { FilePatch } from "@/domain/vfs";
 import { Agent, type AgentEvent, type RunOptions, type RunResult, type UserAction } from "@/services/agent";
 import type { Config } from "@/services/config";
 
@@ -22,7 +23,7 @@ export interface TimelineEntry {
 }
 
 export interface PendingUserAction {
-    readonly draft: string;
+    readonly diffs: ReadonlyArray<FilePatch>;
     readonly cycle: number;
 }
 
@@ -42,6 +43,7 @@ export interface AgentState {
         readonly lastDraft?: string;
     } | null;
     readonly totalCost: number;
+    readonly files: ReadonlyArray<string>;
     readonly sessionId: string | null;
 }
 
@@ -56,6 +58,7 @@ export const initialAgentState: AgentState = {
     result: null,
     error: null,
     totalCost: 0,
+    files: [],
     sessionId: null,
 };
 
@@ -67,6 +70,7 @@ export interface UseAgentOptions {
 export interface UseAgentReturn {
     readonly state: AgentState;
     readonly start: (options: RunOptions) => void;
+    readonly retry: () => void;
     readonly submitAction: (action: UserAction) => void;
     readonly cancel: () => void;
     readonly reset: () => void;
@@ -75,7 +79,7 @@ export interface UseAgentReturn {
     readonly hasError: boolean;
 }
 
-type AgentAction =
+export type AgentAction =
     | { type: "START"; sessionId: string }
     | { type: "EVENT"; event: AgentEvent }
     | { type: "COMPLETE"; result: RunResult }
@@ -100,7 +104,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
         cycle: "cycle" in event ? event.cycle : state.cycle,
     };
 
-    const timeline = [...state.timeline, entry];
+    const timeline = event._tag === "StateUpdate" ? state.timeline : [...state.timeline, entry];
 
     switch (event._tag) {
         case "Progress":
@@ -110,6 +114,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 cycle: event.cycle,
                 phase: inferPhaseFromProgress(event.message),
                 streamBuffer: "",
+                streamPhase: null,
             };
 
         case "StreamChunk":
@@ -134,6 +139,8 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 ...state,
                 timeline,
                 phase: event.approved ? "awaiting-user" : "drafting",
+                streamBuffer: "",
+                streamPhase: null,
             };
 
         case "UserActionRequired":
@@ -141,7 +148,9 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                 ...state,
                 timeline,
                 phase: "awaiting-user",
-                pendingAction: { draft: event.draft, cycle: event.cycle },
+                pendingAction: { diffs: event.diffs, cycle: event.cycle },
+                streamBuffer: "",
+                streamPhase: null,
             };
 
         case "IterationLimitReached":
@@ -154,6 +163,14 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
                     canRetry: false,
                     lastDraft: event.lastDraft,
                 },
+                streamPhase: null,
+            };
+
+        case "StateUpdate":
+            return {
+                ...state,
+                files: event.files,
+                totalCost: event.cost,
             };
 
         case "ToolCall":
@@ -166,7 +183,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
     }
 }
 
-function agentReducer(state: AgentState, action: AgentAction): AgentState {
+export function agentReducer(state: AgentState, action: AgentAction): AgentState {
     switch (action.type) {
         case "START":
             return {
@@ -212,28 +229,27 @@ function mapErrorToState(error: unknown): AgentState["error"] {
     };
 }
 
+interface AgentSession {
+    submitUserAction: (action: UserAction) => Effect.Effect<void, unknown>;
+    cancel: () => Effect.Effect<void>;
+    fiber: Fiber.RuntimeFiber<void, unknown> | null;
+}
+
 export function useAgent(
     runtime: ManagedRuntime.ManagedRuntime<Agent | Config, unknown>,
     options: UseAgentOptions = {},
 ): UseAgentReturn {
     const [state, dispatch] = useReducer(agentReducer, initialAgentState);
 
-    const sessionRef = useRef<{
-        submitUserAction: (action: UserAction) => Effect.Effect<void, unknown>;
-        cancel: () => Effect.Effect<void>;
-        fiber: Fiber.RuntimeFiber<void, unknown> | null;
-    } | null>(null);
+    const sessionRef = useRef<AgentSession | null>(null);
+    const lastRunOptionsRef = useRef<RunOptions | null>(null);
+    const optionsRef = useRef(options);
 
-    useEffect(() => {
-        return () => {
-            if (sessionRef.current) {
-                void runtime.runPromise(sessionRef.current.cancel());
-            }
-        };
-    }, [runtime]);
+    optionsRef.current = options;
 
     const start = useCallback(
         (runOptions: RunOptions) => {
+            lastRunOptionsRef.current = runOptions;
             const program = Effect.gen(function* () {
                 const agent = yield* Agent;
                 const session = yield* agent.run(runOptions);
@@ -260,8 +276,8 @@ export function useAgent(
                 yield* Fiber.join(eventFiber);
 
                 dispatch({ type: "COMPLETE", result });
-                if (options.onComplete) {
-                    options.onComplete(result);
+                if (optionsRef.current.onComplete) {
+                    optionsRef.current.onComplete(result);
                 }
 
                 return result;
@@ -269,8 +285,8 @@ export function useAgent(
                 Effect.catchAll((error) => {
                     const errorState = mapErrorToState(error);
                     dispatch({ type: "ERROR", error: errorState });
-                    if (options.onError) {
-                        options.onError(errorState);
+                    if (optionsRef.current.onError) {
+                        optionsRef.current.onError(errorState);
                     }
                     return Effect.void;
                 }),
@@ -281,13 +297,22 @@ export function useAgent(
             } catch (error) {
                 const errorState = mapErrorToState(error);
                 dispatch({ type: "ERROR", error: errorState });
-                if (options.onError) {
-                    options.onError(errorState);
+                if (optionsRef.current.onError) {
+                    optionsRef.current.onError(errorState);
                 }
             }
         },
-        [runtime, options.onComplete, options.onError],
+        [runtime],
     );
+
+    const retry = useCallback(() => {
+        if (!state.error || !state.sessionId || !lastRunOptionsRef.current) return;
+
+        start({
+            ...lastRunOptionsRef.current,
+            sessionId: state.sessionId,
+        });
+    }, [state.error, state.sessionId, start]);
 
     const submitAction = useCallback(
         (action: UserAction) => {
@@ -297,17 +322,8 @@ export function useAgent(
                 console.error("Failed to submit action:", error);
                 dispatch({ type: "ERROR", error: mapErrorToState(error) });
             });
-
-            dispatch({
-                type: "EVENT",
-                event: {
-                    _tag: "Progress",
-                    message: action.type === "approve" ? "Applying changes..." : "Revising...",
-                    cycle: state.cycle,
-                },
-            });
         },
-        [runtime, state.phase, state.cycle],
+        [runtime, state.phase],
     );
 
     const cancel = useCallback(() => {
@@ -324,12 +340,26 @@ export function useAgent(
 
     const reset = useCallback(() => {
         sessionRef.current = null;
+        lastRunOptionsRef.current = null;
         dispatch({ type: "RESET" });
     }, []);
+
+    useEffect(() => {
+        return () => {
+            const cleanup = async () => {
+                if (sessionRef.current) {
+                    await runtime.runPromise(sessionRef.current.cancel());
+                    sessionRef.current = null;
+                }
+            };
+            void cleanup();
+        };
+    }, [runtime]);
 
     return {
         state,
         start,
+        retry,
         submitAction,
         cancel,
         reset,

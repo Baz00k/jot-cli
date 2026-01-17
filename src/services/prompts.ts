@@ -1,36 +1,38 @@
 import { FileSystem } from "@effect/platform";
 import { BunFileSystem } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
+import { Chunk, Effect, Layer, Option } from "effect";
 import { PromptReadError } from "@/domain/errors";
+import type { FilePatch, ReviewComment } from "@/domain/vfs";
 import { promptPaths } from "@/prompts";
 
 export type PromptType = keyof typeof promptPaths;
 
+export interface FileContext {
+    readonly path: string;
+    readonly summary?: string;
+}
+
+export interface WriterContext {
+    readonly filesRead: ReadonlyArray<FileContext>;
+    readonly filesModified: ReadonlyArray<string>;
+}
+
 export interface WriterTaskInput {
     readonly goal: string;
-    readonly context?: {
-        readonly draft: string;
-        readonly feedback: string;
-        readonly sourceFiles?: string;
-    };
+    readonly latestComments: Chunk.Chunk<ReviewComment>;
+    readonly latestFeedback: Option.Option<string>;
+    readonly previousContext: Option.Option<WriterContext>;
 }
 
 export interface ReviewerTaskInput {
     readonly goal: string;
-    readonly draft: string;
-    readonly sourceFiles?: string;
-}
-
-export interface EditorTaskInput {
-    readonly goal: string;
-    readonly approvedContent: string;
+    readonly diffs: Chunk.Chunk<FilePatch>;
 }
 
 export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     effect: Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
 
-        // Load raw prompt templates
         const loadRaw = (promptType: PromptType) =>
             Effect.gen(function* () {
                 const promptPath = promptPaths[promptType];
@@ -47,95 +49,115 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
             );
 
         return {
-            /**
-             * Get raw prompt content by type
-             */
             get: (promptType: PromptType) => loadRaw(promptType),
 
-            /**
-             * Get a function that renders writer task prompts.
-             * Handles both initial drafting and revision scenarios.
-             */
             getWriterTask: Effect.gen(function* () {
                 const systemPrompt = yield* loadRaw("writer");
 
                 return {
                     system: systemPrompt,
                     render: (input: WriterTaskInput): string => {
-                        if (input.context) {
-                            // Revision prompt - include current draft and feedback
-                            const parts = [`Task: ${input.goal}`, "", "## Current Draft", input.context.draft];
+                        const parts = [
+                            "# Task",
+                            "",
+                            input.goal,
+                            "",
+                            "## Environment details",
+                            `Current date: ${formatter.format(new Date())}`,
+                        ];
 
-                            if (input.context.sourceFiles) {
-                                parts.push("", "## Source Files (from initial exploration)", input.context.sourceFiles);
+                        const previousContext = input.previousContext;
+                        if (Option.isSome(previousContext)) {
+                            const ctx = previousContext.value;
+                            parts.push("", "## Context from Previous Iterations");
+
+                            if (ctx.filesRead.length > 0) {
+                                parts.push("### Files Read");
+                                parts.push(
+                                    ctx.filesRead
+                                        .map((f) => (f.summary ? `- ${f.path}: ${f.summary}` : `- ${f.path}`))
+                                        .join("\n"),
+                                );
                             }
 
-                            parts.push(
-                                "",
-                                "## Critique to Address",
-                                input.context.feedback,
-                                "",
-                                "## Instructions",
-                                "Revise the draft IN-PLACE to address each critique point.",
-                                "Output the complete revised draft.",
-                            );
+                            if (ctx.filesModified.length > 0) {
+                                parts.push("### Files Modified");
+                                parts.push(ctx.filesModified.map((f) => `- ${f}`).join("\n"));
+                            }
 
-                            return parts.join("\n");
+                            parts.push("", "Use this context to avoid re-reading files unnecessarily.");
                         }
 
-                        // Initial draft prompt
-                        return [
-                            `Task: ${input.goal}`,
+                        const latestComments = input.latestComments;
+                        const latestFeedback = input.latestFeedback;
+
+                        if (Chunk.isNonEmpty(latestComments) || Option.isSome(latestFeedback)) {
+                            parts.push("", "## Reviewer Feedback", "");
+
+                            if (Option.isSome(latestFeedback)) {
+                                parts.push(latestFeedback.value, "");
+                            }
+
+                            if (Chunk.isNonEmpty(latestComments)) {
+                                parts.push(
+                                    "### Specific Comments",
+                                    Chunk.toArray(latestComments)
+                                        .map(
+                                            (c) =>
+                                                `- ${c.path}${Option.isSome(c.line) ? `:${c.line.value}` : ""}: ${c.content}`,
+                                        )
+                                        .join("\n"),
+                                );
+                            }
+
+                            parts.push("", "You have to address the feedback and resubmit the work for review.");
+                        }
+
+                        parts.push(
                             "",
-                            "Please draft the initial content based on the project context.",
-                            "Use tools to explore the project structure and gather relevant information first.",
-                        ].join("\n");
-                    },
-                };
-            }),
-
-            /**
-             * Get a function that renders reviewer task prompts.
-             */
-            getReviewerTask: Effect.gen(function* () {
-                const systemPrompt = yield* loadRaw("reviewer");
-
-                return {
-                    system: systemPrompt,
-                    render: (input: ReviewerTaskInput): string => {
-                        const parts = ["## Original Goal", input.goal, "", "## Draft to Review", input.draft];
-
-                        if (input.sourceFiles) {
-                            parts.push("", "## Source Files (from initial exploration)", input.sourceFiles);
-                        }
-
-                        parts.push("", "Evaluate this draft against the original goal.");
+                            "Use tools to explore the project, then use write_file/edit_file to make changes.",
+                            "Changes are staged and will be reviewed before applying.",
+                        );
 
                         return parts.join("\n");
                     },
                 };
             }),
 
-            /**
-             * Get a function that renders editor task prompts.
-             */
-            getEditorTask: Effect.gen(function* () {
-                const systemPrompt = yield* loadRaw("editor");
+            getReviewerTask: Effect.gen(function* () {
+                const systemPrompt = yield* loadRaw("reviewer");
 
                 return {
                     system: systemPrompt,
-                    render: (input: EditorTaskInput): string => {
+                    render: (input: ReviewerTaskInput): string => {
+                        const formatPatch = (patch: FilePatch): string => {
+                            return Chunk.head(patch.hunks).pipe(
+                                Option.map((h) => h.content),
+                                Option.getOrElse(() => ""),
+                            );
+                        };
+
                         return [
+                            "# Task",
+                            "",
+                            "You are a strict academic reviewer.",
+                            "Your task is to review the changes to files and provide feedback.",
+                            "Use tools to provide specific feedback to exact lines of text",
+                            "or provide general feedback to the entire set of changes.",
+                            "You can approve or reject the work and ask for additional changes.",
+                            "As a last action, you must ALWAYS call either approve_changes or reject_changes.",
+                            "",
                             "## Original Goal",
+                            "",
                             input.goal,
                             "",
-                            "## Approved Content",
-                            input.approvedContent,
+                            "## Staged Changes (Diffs)",
+                            Chunk.toArray(input.diffs)
+                                .map((p) => `### ${p.path}\n\`\`\`diff\n${formatPatch(p)}\n\`\`\``)
+                                .join("\n\n"),
                             "",
-                            "Please apply the approved content to the project files using the available tools.",
-                            "You may need to create new files or edit existing ones.",
-                            "You HAVE TO save the changes, if none of the files seem fitting, just save it in the CWD with a descriptive name.",
-                            "When you have finished, provide a brief summary of the changes.",
+                            "## Environment details",
+                            `Current date: ${formatter.format(new Date())}`,
                         ].join("\n");
                     },
                 };
@@ -146,14 +168,15 @@ export class Prompts extends Effect.Service<Prompts>()("services/prompts", {
     accessors: true,
 }) {}
 
+const formatter = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "full",
+    timeStyle: "short",
+});
+
 export const TestPrompts = new Prompts({
     get: () => Effect.succeed("prompt"),
     getWriterTask: Effect.succeed({
         render: (_: WriterTaskInput) => "prompt",
-        system: "system",
-    }),
-    getEditorTask: Effect.succeed({
-        render: (_: EditorTaskInput) => "prompt",
         system: "system",
     }),
     getReviewerTask: Effect.succeed({

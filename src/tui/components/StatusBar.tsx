@@ -1,6 +1,9 @@
 import { useKeyboard } from "@opentui/react";
+import { useAgentContext } from "@/tui/context/AgentContext";
 import { useConfigContext } from "@/tui/context/ConfigContext";
-import { useRenderer } from "@/tui/context/RendererContext";
+import { useTheme } from "@/tui/context/ThemeContext";
+import { Keymap } from "@/tui/keyboard/keymap";
+import { areKeyBindingsEqual } from "../keyboard/utils";
 
 export interface StatusBarProps {
     isRunning: boolean;
@@ -9,16 +12,15 @@ export interface StatusBarProps {
 
 export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
     const { config } = useConfigContext();
-    const renderer = useRenderer();
+    const { state, retry } = useAgentContext();
+    const { theme } = useTheme();
 
-    useKeyboard((key) => {
+    useKeyboard((keyEvent) => {
         if (disabled) return;
 
-        if (key.name === "escape") {
-            // Reset window title before destroying renderer
-            renderer.setTerminalTitle("");
-            renderer.destroy();
-            process.exit(0);
+        if (state.error && areKeyBindingsEqual(keyEvent, Keymap.Global.Retry)) {
+            retry();
+            return;
         }
     });
 
@@ -32,14 +34,20 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
-                minHeight: 3,
+                height: 3,
+                borderColor: theme.borderColor,
             }}
         >
-            <text>Esc: Exit | F2: Settings</text>
+            <text>
+                {Keymap.Global.Cancel.label}: Exit | {Keymap.Global.Settings.label}: Settings
+                {state.error ? ` | ${Keymap.Global.Retry.label}: Retry` : ""}
+            </text>
             <text>
                 W: {writer} | R: {reviewer}
             </text>
-            <text>{isRunning ? "Status: Running" : "Status: Ready"}</text>
+            <text fg={isRunning ? theme.successColor : theme.mutedColor}>
+                {isRunning ? "Status: Running" : "Status: Ready"}
+            </text>
         </box>
     );
 };

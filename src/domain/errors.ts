@@ -1,5 +1,10 @@
 import { Data } from "effect";
 
+export class VFSError extends Data.TaggedError("VFSError")<{
+    readonly message: string;
+    readonly cause?: unknown;
+}> {}
+
 export class ConfigReadError extends Data.TaggedError("ConfigReadError")<{
     readonly cause: unknown;
 }> {}

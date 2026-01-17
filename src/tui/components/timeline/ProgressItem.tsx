@@ -7,10 +7,19 @@ interface ProgressItemProps {
 
 export const ProgressItem = ({ event, cycle }: ProgressItemProps) => {
     return (
-        <box style={{ marginBottom: 1 }}>
-            <text>
-                [Cycle {cycle}] {event.message}
+        <box
+            style={{
+                marginBottom: 1,
+                padding: 1,
+                borderStyle: "rounded",
+                borderColor: "#7aa2f7",
+                flexDirection: "row",
+            }}
+        >
+            <text style={{ marginRight: 1 }}>
+                <strong fg="#7aa2f7">Running Cycle {cycle}:</strong>
             </text>
+            <text>{event.message}</text>
         </box>
     );
 };

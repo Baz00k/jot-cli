@@ -47,7 +47,7 @@ export const TimelineItem = ({
         case "UserActionRequired":
             return (
                 <FeedbackWidget
-                    pendingAction={{ draft: event.draft, cycle: event.cycle }}
+                    pendingAction={{ diffs: event.diffs, cycle: event.cycle }}
                     onApprove={onApprove ?? handleApprove}
                     onReject={onReject ?? handleReject}
                     focused={focused}

@@ -1,20 +1,14 @@
 import { cancel, intro, isCancel, log, note, outro, select, spinner, text } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
-import { FileSystem, Path } from "@effect/platform";
-import { BunContext } from "@effect/platform-bun";
-import { Effect, Fiber, Option, Stream } from "effect";
-import {
-    displayError,
-    displayLastDraft,
-    displaySaveSuccess,
-    shouldRethrow,
-    type WorkflowSnapshot,
-} from "@/commands/utils/workflow-errors";
+import { Chunk, Effect, Fiber, Option, Stream } from "effect";
+import { displayError, shouldRethrow } from "@/commands/utils/workflow-errors";
 import { UserCancel, WorkflowErrorHandled } from "@/domain/errors";
 import { Messages } from "@/domain/messages";
+import type { FilePatch } from "@/domain/vfs";
 import type { AgentEvent, RunResult, UserAction } from "@/services/agent";
 import { Agent, reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
+import { VFS } from "@/services/vfs";
 import { formatWindow, renderMarkdown, renderMarkdownSnippet } from "@/text/utils";
 
 const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
@@ -43,31 +37,48 @@ const runPrompt = <T>(promptFn: () => Promise<T | symbol>) =>
         ),
     );
 
+const formatDiffs = (diffs: ReadonlyArray<FilePatch>): string => {
+    if (diffs.length === 0) return "No changes.";
+    return diffs
+        .map((patch) => {
+            const status = patch.isNew ? " (New)" : patch.isDeleted ? " (Deleted)" : "";
+            const hunks = Chunk.toArray(patch.hunks)
+                .map((h) => h.content)
+                .join("\n");
+            return `=== ${patch.path}${status} ===\n${hunks}`;
+        })
+        .join("\n\n");
+};
+
 /**
  * Handle user feedback when AI review approves the draft.
  * Returns the user's decision to approve or request changes.
  */
-const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction, UserCancel | Error> =>
+const getUserFeedback = (
+    diffs: ReadonlyArray<FilePatch>,
+    cycle: number,
+): Effect.Effect<UserAction, UserCancel | Error> =>
     Effect.gen(function* () {
-        yield* Effect.sync(() => note(renderMarkdownSnippet(draft), `Draft (Cycle ${cycle}) - Preview`));
+        const diffText = formatDiffs(diffs);
+        yield* Effect.sync(() => note(renderMarkdownSnippet(diffText), `Changes (Cycle ${cycle})`));
 
         const action = yield* runPrompt(() =>
             select({
-                message: "AI review approved this draft. What would you like to do?",
+                message: "AI review approved these changes. What would you like to do?",
                 options: [
                     { value: "approve", label: "Approve and finalize" },
                     { value: "reject", label: "Request changes" },
-                    { value: "view", label: "View full draft" },
+                    { value: "view", label: "View full diffs" },
                 ],
             }),
         );
 
         if (action === "view") {
-            yield* Effect.sync(() => note(renderMarkdown(draft), "Full Draft"));
+            yield* Effect.sync(() => note(renderMarkdownSnippet(diffText), "Full Diffs"));
             // Re-prompt after viewing
             const finalAction = yield* runPrompt(() =>
                 select({
-                    message: "What would you like to do with this draft?",
+                    message: "What would you like to do with these changes?",
                     options: [
                         { value: "approve", label: "Approve and finalize" },
                         { value: "reject", label: "Request changes" },
@@ -79,7 +90,7 @@ const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction
                 const comment = yield* runPrompt(() =>
                     text({
                         message: "What changes would you like?",
-                        placeholder: "e.g., Make the tone more formal, add more examples...",
+                        placeholder: "e.g., Fix the typo in the header, rename the variable...",
                     }),
                 );
                 return { type: "reject" as const, comment };
@@ -101,56 +112,14 @@ const getUserFeedback = (draft: string, cycle: number): Effect.Effect<UserAction
     });
 
 /**
- * Prompt the user to save a draft to a file.
- * Returns the file path if the user chooses to save, or undefined if they decline.
- */
-const promptToSaveDraft = (
-    draft: string,
-): Effect.Effect<string | undefined, Error | UserCancel, FileSystem.FileSystem | Path.Path> =>
-    Effect.gen(function* () {
-        const shouldSave = yield* runPrompt(() =>
-            select({
-                message: "Would you like to save the draft to a file?",
-                options: [
-                    { value: "yes", label: "Yes, save to file" },
-                    { value: "no", label: "No, discard" },
-                ],
-            }),
-        );
-
-        if (shouldSave === "no") {
-            return undefined;
-        }
-
-        const defaultFileName = `draft-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)}.md`;
-        const filePath = yield* runPrompt(() =>
-            text({
-                message: "Enter the file path to save the draft:",
-                placeholder: defaultFileName,
-                defaultValue: defaultFileName,
-            }),
-        );
-
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const fullPath = path.resolve(filePath);
-
-        yield* fs
-            .writeFileString(fullPath, draft)
-            .pipe(Effect.mapError((error) => new Error(`Failed to save file: ${String(error)}`)));
-
-        return fullPath;
-    });
-
-/**
- * Handle workflow errors by displaying error info and offering to save any draft.
+ * Handle workflow errors by displaying error info.
  * Returns WorkflowErrorHandled to signal graceful exit, or rethrows UserCancel.
  */
 const handleWorkflowError = (
     error: unknown,
-    getSnapshot: () => Effect.Effect<WorkflowSnapshot>,
     s: ReturnType<typeof spinner>,
-): Effect.Effect<RunResult, UserCancel | WorkflowErrorHandled, FileSystem.FileSystem | Path.Path> =>
+    vfs: VFS,
+): Effect.Effect<RunResult, UserCancel | WorkflowErrorHandled> =>
     Effect.gen(function* () {
         yield* Effect.sync(() => s.stop());
 
@@ -159,25 +128,38 @@ const handleWorkflowError = (
             return yield* error;
         }
 
-        // Get current state and display error
-        const snapshot = yield* getSnapshot();
         yield* displayError(error);
 
-        // Offer to save draft if one exists
-        const draftOption = yield* displayLastDraft(snapshot);
+        yield* vfs.getDiffs().pipe(
+            Effect.flatMap((diffs) =>
+                Effect.gen(function* () {
+                    if (Chunk.size(diffs) > 0) {
+                        const files = Chunk.map(diffs, (d) => d.path).pipe(Chunk.join(", "));
+                        log.warn(`There are unsaved changes in: ${files}`);
 
-        if (Option.isSome(draftOption)) {
-            const savedPath = yield* promptToSaveDraft(draftOption.value).pipe(
-                Effect.provide(BunContext.layer),
-                Effect.catchAll(() => Effect.succeed(undefined)),
-            );
+                        const shouldSave = yield* runPrompt(() =>
+                            select({
+                                message: "Would you like to save these changes?",
+                                options: [
+                                    { value: "yes", label: "Yes, save changes" },
+                                    { value: "no", label: "No, discard" },
+                                ],
+                            }),
+                        );
 
-            if (savedPath) {
-                yield* displaySaveSuccess(savedPath, snapshot);
-                return yield* new WorkflowErrorHandled({ savedPath });
-            }
-            yield* Effect.sync(() => log.info("Draft not saved."));
-        }
+                        if (shouldSave === "yes") {
+                            const savedFiles = yield* vfs.flush();
+                            yield* Effect.sync(() => {
+                                log.success(`Saved ${savedFiles.length} file(s): ${savedFiles.join(", ")}`);
+                            });
+                        } else {
+                            yield* Effect.sync(() => log.info("Changes discarded."));
+                        }
+                    }
+                }),
+            ),
+            Effect.catchAll((e) => Effect.sync(() => log.error(`Failed to check for unsaved changes: ${e}`))),
+        );
 
         return yield* new WorkflowErrorHandled({});
     });
@@ -243,6 +225,7 @@ export const writeCommand = Command.make(
             }
 
             const agent = yield* Agent;
+            const vfs = yield* VFS;
             const s = spinner();
             yield* Effect.sync(() => s.start("Initializing agent..."));
 
@@ -298,7 +281,7 @@ export const writeCommand = Command.make(
                         case "UserActionRequired": {
                             yield* Effect.sync(() => s.stop("Awaiting your review..."));
 
-                            const userAction = yield* getUserFeedback(event.draft, event.cycle);
+                            const userAction = yield* getUserFeedback(event.diffs, event.cycle);
 
                             yield* agentSession.submitUserAction(userAction);
 
@@ -317,12 +300,10 @@ export const writeCommand = Command.make(
                     }
                 });
 
-            // Process events in the background
             const eventProcessor = yield* agentSession.events.pipe(Stream.runForEach(processEvent), Effect.fork);
 
-            // Wait for the result - handle errors inline where we have access to agentSession
             const agentResult = yield* agentSession.result.pipe(
-                Effect.catchAll((error) => handleWorkflowError(error, () => agentSession.getCurrentState(), s)),
+                Effect.catchAll((error) => handleWorkflowError(error, s, vfs)),
             );
 
             yield* Fiber.join(eventProcessor);

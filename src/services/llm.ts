@@ -168,14 +168,6 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                         return yield* AIGenerationError.fromUnknown(streamError);
                     }
 
-                    if (!accumulatedText || accumulatedText.trim().length === 0) {
-                        return yield* new AIGenerationError({
-                            cause: null,
-                            message: "Generation failed: Empty response received.",
-                            isRetryable: true,
-                        });
-                    }
-
                     let cost = 0;
                     const metadata = (yield* Effect.tryPromise(() => response.providerMetadata).pipe(
                         Effect.orElseSucceed(() => undefined),
