@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/Baz00k/jot-cli/compare/v0.8.0...v0.8.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* failing ci builds ([6eef80a](https://github.com/Baz00k/jot-cli/commit/6eef80af9b6502b7ef922ef475a23d0967a64cb3))
+
 ## [0.8.0](https://github.com/Baz00k/jot-cli/compare/v0.7.0...v0.8.0) (2026-01-17)
 
 
