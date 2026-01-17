@@ -10,9 +10,12 @@
         "check": "biome check . && tsc --noEmit",
         "check:fix": "biome check --write && tsc --noEmit",
         "compile": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot",
-        "compile:linux": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-linux --target=bun-linux-x64",
-        "compile:windows": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-windows --target=bun-windows-x64",
-        "compile:macos": "bun build --compile --minify --sourcemap src/index.ts --outfile bin/jot-macos --target=bun-darwin-arm64"
+        "compile:release": "bun run compile:linux-x64 && bun run compile:linux-arm64 && bun run compile:windows-x64 && bun run compile:macos-arm64 && bun run compile:macos-x64",
+        "compile:linux-x64": "bun build --compile --minify --sourcemap --define process.platform='\"linux\"' --define process.arch='\"x64\"' src/index.ts --outfile bin/jot-linux-x64 --target=bun-linux-x64",
+        "compile:linux-arm64": "bun build --compile --minify --sourcemap --define process.platform='\"linux\"' --define process.arch='\"arm64\"' src/index.ts --outfile bin/jot-linux-arm64 --target=bun-linux-arm64",
+        "compile:windows-x64": "bun build --compile --minify --sourcemap --define process.platform='\"win32\"' --define process.arch='\"x64\"' src/index.ts --outfile bin/jot-windows-x64.exe --target=bun-windows-x64",
+        "compile:macos-arm64": "bun build --compile --minify --sourcemap --define process.platform='\"darwin\"' --define process.arch='\"arm64\"' src/index.ts --outfile bin/jot-macos-arm64 --target=bun-darwin-arm64",
+        "compile:macos-x64": "bun build --compile --minify --sourcemap --define process.platform='\"darwin\"' --define process.arch='\"x64\"' src/index.ts --outfile bin/jot-macos-x64 --target=bun-darwin-x64"
     },
     "type": "module",
     "dependencies": {

@@ -1,10 +1,10 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    branches: [master]
-    types: [completed]
+    workflow_run:
+        workflows: ["CI"]
+        branches: [master]
+        types: [completed]
 
 permissions:
     contents: write
@@ -37,10 +37,18 @@ jobs:
 
             - name: Build binaries
               if: "${{ steps.release.outputs.release_created }}"
+              run: bun run compile:release
+
+            - name: Generate checksums
+              if: "${{ steps.release.outputs.release_created }}"
+              run: shasum -a 256 bin/jot-* > bin/jot-checksums.txt
+
+            - name: Prepare distributable manifests
+              if: "${{ steps.release.outputs.release_created }}"
               run: |
-                  bun run compile:linux
-                  bun run compile:windows
-                  bun run compile:macos
+                  mkdir -p dist
+                  bun packaging/scripts/update-homebrew-formula.ts ${{ steps.release.outputs.tag_name }} bin/jot-checksums.txt
+                  bun packaging/scripts/update-scoop-manifest.ts ${{ steps.release.outputs.tag_name }} bin/jot-checksums.txt
 
             - name: Upload Release Artifacts
               if: "${{ steps.release.outputs.release_created }}"
@@ -48,6 +56,13 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   gh release upload ${{ steps.release.outputs.tag_name }} \
-                    bin/jot-linux \
-                    bin/jot-windows* \
-                    bin/jot-macos
+                    bin/jot-linux-x64 \
+                    bin/jot-linux-arm64 \
+                    bin/jot-windows-x64.exe \
+                    bin/jot-macos-arm64 \
+                    bin/jot-macos-x64 \
+                    bin/jot-checksums.txt \
+                    scripts/install.sh \
+                    scripts/install.ps1 \
+                    dist/jot-cli.rb \
+                    dist/jot.json

@@ -1,0 +1,16 @@
+{
+    "version": "__VERSION__",
+    "description": "AI Research Assistant CLI",
+    "homepage": "https://github.com/Baz00k/jot-cli",
+    "url": "__URL_WINDOWS_X64__",
+    "hash": "__SHA256_WINDOWS_X64__",
+    "bin": [["jot-windows-x64.exe", "jot"]],
+    "checkver": "github",
+    "autoupdate": {
+        "url": "https://github.com/Baz00k/jot-cli/releases/download/v$version/jot-windows-x64.exe",
+        "hash": {
+            "url": "https://github.com/Baz00k/jot-cli/releases/download/v$version/jot-checksums.txt",
+            "regex": "$sha256\\s+bin/jot-windows-x64.exe"
+        }
+    }
+}

@@ -6,9 +6,45 @@ A CLI-based AI agent designed to assist in writing research papers. It gathers c
 
 ### For End Users
 
-In the future the tool should be available to install via package managers like npm or brew.
-Currently, the only installation method is to download the appropriate binary for your platform
-from the releases page and add it to your PATH.
+#### Quick install (macOS/Linux)
+
+```bash
+curl -fsSL https://github.com/Baz00k/jot-cli/releases/latest/download/install.sh | bash
+```
+
+You can override the install directory:
+
+```bash
+INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://github.com/Baz00k/jot-cli/releases/latest/download/install.sh | bash
+```
+
+#### Windows (PowerShell)
+
+```powershell
+irm https://github.com/Baz00k/jot-cli/releases/latest/download/install.ps1 | iex
+```
+
+Install to a custom directory and add to PATH:
+
+```powershell
+irm https://github.com/Baz00k/jot-cli/releases/latest/download/install.ps1 | iex -ArgumentList "-InstallDir C:\\Tools\\jot -AddToPath"
+```
+
+#### Homebrew (macOS/Linux)
+
+```bash
+brew install https://github.com/Baz00k/jot-cli/releases/latest/download/jot-cli.rb
+```
+
+#### Scoop (Windows)
+
+```powershell
+scoop install https://github.com/Baz00k/jot-cli/releases/latest/download/jot.json
+```
+
+#### Manual download
+
+Download the appropriate binary from the releases page and add it to your PATH.
 
 ### For Development
 
