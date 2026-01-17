@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/Baz00k/jot-cli/compare/v0.8.1...v0.8.2) (2026-01-17)
+
+
+### Bug Fixes
+
+* install packages for all system versions ([aa42410](https://github.com/Baz00k/jot-cli/commit/aa424108ad2228b00bb38bec739b1b493a65891e))
+
 ## [0.8.1](https://github.com/Baz00k/jot-cli/compare/v0.8.0...v0.8.1) (2026-01-17)
 
 
