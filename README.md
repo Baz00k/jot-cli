@@ -1,75 +1,33 @@
 # Jot CLI - AI Research Assistant
 
 A CLI-based AI agent designed to assist in writing research papers. It gathers context from your project, drafts content, reviews it for academic rigor, and refines it.
+It works similarly to Ralph Loop - keeps working until it reaches a satisfactory level of quality.
 
 ## Installation
 
-### For End Users
-
-#### Quick install (macOS/Linux)
+### Quick Install (MacOS/Linux)
 
 ```bash
 curl -fsSL https://github.com/Baz00k/jot-cli/releases/latest/download/install.sh | bash
 ```
 
-You can override the install directory:
-
-```bash
-INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://github.com/Baz00k/jot-cli/releases/latest/download/install.sh | bash
-```
-
-#### Windows (PowerShell)
+### Windows (PowerShell)
 
 ```powershell
 irm https://github.com/Baz00k/jot-cli/releases/latest/download/install.ps1 | iex
 ```
 
-Install to a custom directory and add to PATH:
-
-```powershell
-irm https://github.com/Baz00k/jot-cli/releases/latest/download/install.ps1 | iex -ArgumentList "-InstallDir C:\\Tools\\jot -AddToPath"
-```
-
-#### Homebrew (macOS/Linux)
+### Homebrew (MacOS/Linux)
 
 ```bash
 brew install https://github.com/Baz00k/jot-cli/releases/latest/download/jot-cli.rb
 ```
 
-#### Scoop (Windows)
+### Scoop (Windows)
 
 ```powershell
 scoop install https://github.com/Baz00k/jot-cli/releases/latest/download/jot.json
 ```
-
-#### Manual download
-
-Download the appropriate binary from the releases page and add it to your PATH.
-
-### For Development
-
-1.  **Clone the repository**:
-
-    ```bash
-    git clone https://github.com/Baz00k/jot-cli.git
-    cd jot-cli
-    ```
-
-2.  **Install dependencies**:
-
-    ```bash
-    bun install
-    ```
-
-3.  **Configure OpenRouter API Key**:
-
-    Set your OpenRouter API key using the config command:
-
-    ```bash
-    bun run src/index.ts config set-key YOUR_API_KEY
-    ```
-
-    Get your API key from https://openrouter.ai/
 
 ## Usage
 
@@ -83,12 +41,6 @@ Launch the interactive Terminal User Interface by running `jot` without any argu
 
 ```bash
 jot
-```
-
-For development, use:
-
-```bash
-bun dev
 ```
 
 ### Key Features
@@ -163,3 +115,40 @@ This is a list of models that have been tested and found to work well with Jot C
 - x-ai/grok-4.1-fast
 - moonshotai/kimi-k2-thinking
 - z-ai/glm-4.7
+
+## Development
+
+1.  **Clone the repository**:
+
+    ```bash
+    git clone https://github.com/Baz00k/jot-cli.git
+    cd jot-cli
+    ```
+
+2.  **Install dependencies**:
+
+    ```bash
+    bun install
+    ```
+
+3.  **Configure OpenRouter API Key**:
+
+    Set your OpenRouter API key using the config command:
+
+    ```bash
+    bun run src/index.ts config set-key YOUR_API_KEY
+    ```
+
+    Get your API key from https://openrouter.ai/
+
+4.  **Run the application**:
+
+    ```bash
+    bun run src/index.ts
+    ```
+
+    or with TUI:
+
+    ```bash
+    bun dev
+    ```
