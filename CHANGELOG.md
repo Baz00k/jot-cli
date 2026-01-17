@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/Baz00k/jot-cli/compare/v0.7.0...v0.8.0) (2026-01-17)
+
+
+### Features
+
+* add installation scripts, scoop and homebrew support ([eb3fc6f](https://github.com/Baz00k/jot-cli/commit/eb3fc6fbd53bd0d4f1b13e9bbbc46c23d4f12432))
+
 ## [0.7.0](https://github.com/Baz00k/jot-cli/compare/v0.6.0...v0.7.0) (2026-01-17)
 
 
