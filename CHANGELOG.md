@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/Baz00k/jot-cli/compare/v0.6.0...v0.7.0) (2026-01-17)
+
+
+### Features
+
+* improved agent ([#31](https://github.com/Baz00k/jot-cli/issues/31)) ([53f6ce5](https://github.com/Baz00k/jot-cli/commit/53f6ce5a021535339fdfa2e253065bc5e767a5e5))
+
+
+### Bug Fixes
+
+* double inject the json instructions to increase probability of generating corrent json object ([0a41121](https://github.com/Baz00k/jot-cli/commit/0a4112153662a4c1f7eb5c85758438569f36c111))
+* increate the number of max steps for more advanced queries ([307e5da](https://github.com/Baz00k/jot-cli/commit/307e5da0e0935d2e2db1f702c65b70a60b134b99))
+* reject empty queries and fetches to empty urls ([a97d84a](https://github.com/Baz00k/jot-cli/commit/a97d84aeffa32bb826692bd23e057db89c741739))
+* windows compilation ([276c8b5](https://github.com/Baz00k/jot-cli/commit/276c8b5c60ebeaf9f9c7e5770a72fafb76def379))
+
 ## [0.6.0](https://github.com/Baz00k/jot-cli/compare/v0.5.0...v0.6.0) (2026-01-12)
 
 
