@@ -1,5 +1,5 @@
 import { Effect, Fiber, type ManagedRuntime, Stream } from "effect";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FilePatch } from "@/domain/vfs";
 import { Agent, type AgentEvent, type RunOptions, type RunResult, type UserAction } from "@/services/agent";
 import type { Config } from "@/services/config";
@@ -79,7 +79,7 @@ export interface UseAgentReturn {
     readonly hasError: boolean;
 }
 
-type AgentAction =
+export type AgentAction =
     | { type: "START"; sessionId: string }
     | { type: "EVENT"; event: AgentEvent }
     | { type: "COMPLETE"; result: RunResult }
@@ -183,7 +183,7 @@ function handleAgentEvent(state: AgentState, event: AgentEvent): AgentState {
     }
 }
 
-function agentReducer(state: AgentState, action: AgentAction): AgentState {
+export function agentReducer(state: AgentState, action: AgentAction): AgentState {
     switch (action.type) {
         case "START":
             return {
@@ -229,48 +229,34 @@ function mapErrorToState(error: unknown): AgentState["error"] {
     };
 }
 
-// Global state container
-let globalState: AgentState = { ...initialAgentState };
-const listeners = new Set<() => void>();
-
-let globalSession: {
+interface AgentSession {
     submitUserAction: (action: UserAction) => Effect.Effect<void, unknown>;
     cancel: () => Effect.Effect<void>;
     fiber: Fiber.RuntimeFiber<void, unknown> | null;
-} | null = null;
-
-let globalLastRunOptions: RunOptions | null = null;
-
-function dispatch(action: AgentAction) {
-    globalState = agentReducer(globalState, action);
-    for (const listener of listeners) {
-        listener();
-    }
 }
 
 export function useAgent(
     runtime: ManagedRuntime.ManagedRuntime<Agent | Config, unknown>,
     options: UseAgentOptions = {},
 ): UseAgentReturn {
-    const subscribe = useCallback((listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-    }, []);
+    const [state, dispatch] = useReducer(agentReducer, initialAgentState);
 
-    const getSnapshot = useCallback(() => globalState, []);
+    const sessionRef = useRef<AgentSession | null>(null);
+    const lastRunOptionsRef = useRef<RunOptions | null>(null);
+    const optionsRef = useRef(options);
 
-    const state = useSyncExternalStore(subscribe, getSnapshot);
+    optionsRef.current = options;
 
     const start = useCallback(
         (runOptions: RunOptions) => {
-            globalLastRunOptions = runOptions;
+            lastRunOptionsRef.current = runOptions;
             const program = Effect.gen(function* () {
                 const agent = yield* Agent;
                 const session = yield* agent.run(runOptions);
 
                 dispatch({ type: "START", sessionId: session.sessionId });
 
-                globalSession = {
+                sessionRef.current = {
                     submitUserAction: session.submitUserAction,
                     cancel: session.cancel,
                     fiber: null,
@@ -281,8 +267,8 @@ export function useAgent(
                     Effect.fork,
                 );
 
-                if (globalSession) {
-                    globalSession.fiber = eventFiber;
+                if (sessionRef.current) {
+                    sessionRef.current.fiber = eventFiber;
                 }
 
                 const result = yield* session.result;
@@ -290,8 +276,8 @@ export function useAgent(
                 yield* Fiber.join(eventFiber);
 
                 dispatch({ type: "COMPLETE", result });
-                if (options.onComplete) {
-                    options.onComplete(result);
+                if (optionsRef.current.onComplete) {
+                    optionsRef.current.onComplete(result);
                 }
 
                 return result;
@@ -299,8 +285,8 @@ export function useAgent(
                 Effect.catchAll((error) => {
                     const errorState = mapErrorToState(error);
                     dispatch({ type: "ERROR", error: errorState });
-                    if (options.onError) {
-                        options.onError(errorState);
+                    if (optionsRef.current.onError) {
+                        optionsRef.current.onError(errorState);
                     }
                     return Effect.void;
                 }),
@@ -311,28 +297,28 @@ export function useAgent(
             } catch (error) {
                 const errorState = mapErrorToState(error);
                 dispatch({ type: "ERROR", error: errorState });
-                if (options.onError) {
-                    options.onError(errorState);
+                if (optionsRef.current.onError) {
+                    optionsRef.current.onError(errorState);
                 }
             }
         },
-        [runtime, options.onComplete, options.onError],
+        [runtime],
     );
 
     const retry = useCallback(() => {
-        if (!state.error || !state.sessionId || !globalLastRunOptions) return;
+        if (!state.error || !state.sessionId || !lastRunOptionsRef.current) return;
 
         start({
-            ...globalLastRunOptions,
+            ...lastRunOptionsRef.current,
             sessionId: state.sessionId,
         });
     }, [state.error, state.sessionId, start]);
 
     const submitAction = useCallback(
         (action: UserAction) => {
-            if (!globalSession || state.phase !== "awaiting-user") return;
+            if (!sessionRef.current || state.phase !== "awaiting-user") return;
 
-            runtime.runPromise(globalSession.submitUserAction(action)).catch((error) => {
+            runtime.runPromise(sessionRef.current.submitUserAction(action)).catch((error) => {
                 console.error("Failed to submit action:", error);
                 dispatch({ type: "ERROR", error: mapErrorToState(error) });
             });
@@ -341,10 +327,10 @@ export function useAgent(
     );
 
     const cancel = useCallback(() => {
-        if (!globalSession) return;
+        if (!sessionRef.current) return;
 
         runtime
-            .runPromise(globalSession.cancel())
+            .runPromise(sessionRef.current.cancel())
             .then(() => dispatch({ type: "CANCEL" }))
             .catch((error) => {
                 console.error("Failed to cancel:", error);
@@ -353,10 +339,22 @@ export function useAgent(
     }, [runtime]);
 
     const reset = useCallback(() => {
-        globalSession = null;
-        globalLastRunOptions = null;
+        sessionRef.current = null;
+        lastRunOptionsRef.current = null;
         dispatch({ type: "RESET" });
     }, []);
+
+    useEffect(() => {
+        return () => {
+            const cleanup = async () => {
+                if (sessionRef.current) {
+                    await runtime.runPromise(sessionRef.current.cancel());
+                    sessionRef.current = null;
+                }
+            };
+            void cleanup();
+        };
+    }, [runtime]);
 
     return {
         state,
