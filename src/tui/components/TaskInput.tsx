@@ -35,6 +35,11 @@ const keyBindings: KeyBinding[] = [
         ctrl: true,
         action: "word-forward",
     },
+    {
+        name: Keymap.TaskInput.Undo.name,
+        ctrl: Keymap.TaskInput.Undo.ctrl,
+        action: "undo",
+    },
 ];
 
 export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) => {
@@ -59,7 +64,8 @@ export const TaskInput = ({ onTaskSubmit, isRunning, focused }: TaskInputProps) 
     };
 
     const handlePaste = (event: PasteEvent) => {
-        if (!focused) return event.preventDefault();
+        event.preventDefault();
+        if (!focused) return;
 
         const text = event.text.trim();
         inputRef.current?.insertText(text);

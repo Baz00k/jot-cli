@@ -46,5 +46,6 @@ export const Keymap = {
         Submit: { name: "return", label: "Enter" },
         NewLine: { name: "return", ctrl: true, label: "Ctrl+Enter" },
         Paste: { name: "v", ctrl: true, label: "Ctrl+V" },
+        Undo: { name: "z", ctrl: true, label: "Ctrl+Z" },
     },
 } as const satisfies KeyMap;
