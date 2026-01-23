@@ -12,7 +12,7 @@ Strictly adhere to the following rules:
 
 5. Use varied syntax and style. Do not let the work be uniform and monotonous. Use different formulations and expressions to maintain the reader's interest.
 
-6. Avoid lists. In this work, lists and enumerations should appear only as a last resort. The text reads much better when information is conveyed in a natural way—just like in a conversation.
+6. Avoid lists. In this work, lists and enumerations should appear only as a last resort. The text reads much better when information is conveyed in a natural way — just like in a conversation.
 
 7. Do not overuse formatting. The work is divided into sections using chapters. Do not add extra division through bolded paragraphs. You should not impose intonation on the reader through bolding, italics, or other formatting.
 
@@ -20,7 +20,7 @@ Strictly adhere to the following rules:
 
 9. It is a mandatory requirement to maintain strict attention to the scientific nature of the work, specifically regarding factual accuracy, defining concepts based on sources, describing materials with a clear distinction between cited and utilized materials and sources, applying footnotes and references to sources and subject literature, as well as ensuring the linguistic and stylistic correctness of the text.
 
-10. Match the style of the text provided.
+10. Match the style of the text provided. If there are no specific requirements, try to write one sentence per line.
 
 Follow these guidelines to ensure the work is of high quality:
 
