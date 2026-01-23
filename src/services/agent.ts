@@ -145,6 +145,8 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                 let sessionHandle: SessionHandle;
                 let initialPrompt = options.prompt ?? "";
                 let startCycle = 0;
+                let replayCycleLimit = 0;
+                let skipInitialVfsReset = false;
 
                 let initialContext: WriterContext = {
                     filesRead: [],
@@ -195,10 +197,14 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                     );
                     const sessionData = yield* session.get(options.sessionId);
                     if (sessionData) {
-                        startCycle = sessionData.iterations;
+                        const sessionIterations = sessionData.iterations;
+                        startCycle = sessionIterations;
                         if (sessionData.status === "failed") {
-                            startCycle = Math.max(0, startCycle - 1);
+                            startCycle = Math.max(0, sessionIterations - 1);
                         }
+
+                        replayCycleLimit = sessionIterations;
+                        skipInitialVfsReset = replayCycleLimit > 0;
 
                         let replayCycle = 0;
                         for (const entry of sessionData.entries) {
@@ -211,7 +217,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                                 replayCycle = (entry.event as { cycle: number }).cycle;
                             }
 
-                            if (entry._tag === "ToolCall" && replayCycle <= startCycle) {
+                            if (entry._tag === "ToolCall" && replayCycle <= replayCycleLimit) {
                                 if (entry.name === "write_file") {
                                     const input = entry.input as { filePath: string; content: string };
                                     if (input?.filePath && typeof input.content === "string") {
@@ -428,7 +434,7 @@ export class Agent extends Effect.Service<Agent>()("services/agent", {
                         cycle,
                     });
 
-                    if (!isRevision) {
+                    if (!isRevision && !skipInitialVfsReset) {
                         yield* vfs.reset();
                     }
 

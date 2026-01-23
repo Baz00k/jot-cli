@@ -360,4 +360,141 @@ describe("Agent Service", () => {
 
         expect(vfsResetMock).not.toHaveBeenCalled();
     });
+
+    test("replays last cycle tool calls after failed session", async () => {
+        const streamTextMock = mock();
+        streamTextMock.mockImplementation(() => Effect.succeed({ content: "Resumed content", cost: 0 }));
+        TestLLM.streamText = streamTextMock;
+
+        const vfsWriteMock = mock(() => Effect.void);
+        const vfsEditMock = mock(() => Effect.void);
+
+        const MockVFSLayer = Layer.succeed(VFS, {
+            reset: () => Effect.void,
+            writeFile: vfsWriteMock,
+            editFile: vfsEditMock,
+            getSummary: () => Effect.succeed({ files: [], fileCount: 0, commentCount: 0 }),
+            getDiffs: () => Effect.succeed(Chunk.empty<FilePatch>()),
+            getComments: () => Effect.succeed(Chunk.empty()),
+            getDecision: () => Effect.succeed(Option.none()),
+            flush: () => Effect.succeed([]),
+            readFile: () => Effect.fail(new Error("Not implemented")),
+            addComment: () => Effect.void,
+            approve: () => Effect.void,
+            reject: () => Effect.void,
+            getFileDiff: () => Effect.dieMessage("Not implemented"),
+            listFiles: () => Effect.succeed([]),
+            readDirectory: () => Effect.succeed([]),
+        } as unknown as typeof VFS.Service);
+
+        const now = Date.now();
+        const sessionMock = {
+            create: mock(),
+            resume: mock(() =>
+                Effect.succeed({
+                    id: "test-session",
+                    path: "/tmp/test-session.json",
+                    addEntry: () => Effect.void,
+                    addAgentEvent: () => Effect.void,
+                    addToolCall: () => Effect.void,
+                    updateStatus: () => Effect.void,
+                    addCost: () => Effect.void,
+                    getTotalCost: () => Effect.succeed(0),
+                    getToolCalls: () => Effect.succeed([]),
+                    updateIterations: () => Effect.void,
+                    getIterations: () => Effect.succeed(2),
+                    flush: () => Effect.void,
+                    close: () => Effect.void,
+                }),
+            ),
+            list: mock(),
+            get: mock(() =>
+                Effect.succeed(
+                    new SessionData({
+                        id: "test-session",
+                        modelWriter: "gpt-4",
+                        modelReviewer: "claude-3",
+                        reasoning: true,
+                        reasoningEffort: "high",
+                        maxIterations: 5,
+                        startedAt: now,
+                        updatedAt: now,
+                        iterations: 2,
+                        totalCost: 0,
+                        status: "failed",
+                        entries: [
+                            {
+                                _tag: "UserInput",
+                                prompt: "Test prompt",
+                                timestamp: now,
+                            },
+                            {
+                                _tag: "AgentEvent",
+                                event: { _tag: "Progress", message: "Drafting", cycle: 1 },
+                                timestamp: now,
+                            },
+                            {
+                                _tag: "ToolCall",
+                                name: "write_file",
+                                input: { filePath: "/cycle1.txt", content: "c1" },
+                                output: "ok",
+                                timestamp: now,
+                            },
+                            {
+                                _tag: "AgentEvent",
+                                event: { _tag: "Progress", message: "Drafting", cycle: 2 },
+                                timestamp: now,
+                            },
+                            {
+                                _tag: "ToolCall",
+                                name: "write_file",
+                                input: { filePath: "/cycle2.txt", content: "c2" },
+                                output: "ok",
+                                timestamp: now,
+                            },
+                            {
+                                _tag: "ToolCall",
+                                name: "edit_file",
+                                input: { filePath: "/cycle2.txt", oldString: "c2", newString: "c2b" },
+                                output: "ok",
+                                timestamp: now,
+                            },
+                        ],
+                    }),
+                ),
+            ),
+            getSessionsDir: mock(),
+        } as unknown as typeof Session.Service;
+
+        const TestLayerWithResume = Agent.DefaultWithoutDependencies.pipe(
+            Layer.provideMerge(
+                Layer.mergeAll(
+                    TestConfigLayer,
+                    TestPromptsLayer,
+                    TestAppLogger,
+                    Layer.succeed(Session, sessionMock),
+                    TestLLMLayer,
+                    MockVFSLayer,
+                    TestWebLayer,
+                    TestProjectFilesLayer,
+                ),
+            ),
+        );
+
+        const program = Effect.gen(function* () {
+            const agent = yield* Agent;
+            const runner = yield* agent.run({ sessionId: "test-session", maxIterations: 3 });
+
+            yield* Stream.runDrain(runner.events);
+            yield* runner.result.pipe(Effect.ignore);
+        });
+
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayerWithResume)));
+
+        expect(vfsWriteMock).toHaveBeenCalledTimes(2);
+        expect(vfsEditMock).toHaveBeenCalledTimes(1);
+        expect(vfsWriteMock).toHaveBeenNthCalledWith(1, "/cycle1.txt", "c1", true);
+        expect(vfsWriteMock).toHaveBeenNthCalledWith(2, "/cycle2.txt", "c2", true);
+        expect(vfsEditMock).toHaveBeenCalledWith("/cycle2.txt", "c2", "c2b", false);
+    });
 });
