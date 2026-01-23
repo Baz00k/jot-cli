@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.3](https://github.com/Baz00k/jot-cli/compare/v0.8.2...v0.8.3) (2026-01-23)
+
+
+### Bug Fixes
+
+* add discard changes tool so agent can remove mistakes ([93a920e](https://github.com/Baz00k/jot-cli/commit/93a920e54d32b070bd36168ac9e69ba8ac2e264f))
+* duplicated text when pasting, missing undo ([85c0841](https://github.com/Baz00k/jot-cli/commit/85c084112b4392f60f6d4d3c09d553a1912906c3))
+* include formatting instructions in prompt ([39dd36f](https://github.com/Baz00k/jot-cli/commit/39dd36f87d184492e40e0112534f51e8c0fe5860))
+* limit max results, update definitions to Effect.fn ([514cb48](https://github.com/Baz00k/jot-cli/commit/514cb489f152658e46a653c89b106cf994f53e69))
+* restarting the agent with existing session ([f7730f7](https://github.com/Baz00k/jot-cli/commit/f7730f7fb14b34d9bc4d35a95651336a54dbe710))
+
 ## [0.8.2](https://github.com/Baz00k/jot-cli/compare/v0.8.1...v0.8.2) (2026-01-17)
 
 
