@@ -60,6 +60,18 @@ describe("ProjectFiles Service", () => {
             expect(fileNames).toContain("paper.tex");
         });
 
+        test("limits returned files with maxResults", async () => {
+            for (let i = 0; i < 10; i++) {
+                await fs.writeFile(path.join(testDir, `file${i}.txt`), "content");
+            }
+
+            const result = (await runEffect(ProjectFiles.listFiles(undefined, false, 5))) as {
+                name: string;
+            }[];
+
+            expect(result.length).toBe(5);
+        });
+
         test("reads file content and creates excerpts for large files", async () => {
             await fs.writeFile(path.join(testDir, "small.txt"), "content");
             const smallResult = await runEffect(ProjectFiles.readFile("small.txt"));

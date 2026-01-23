@@ -39,174 +39,180 @@ export class ProjectFiles extends Effect.Service<ProjectFiles>()("services/Proje
         /**
          * Returns a safe path that is within the project directory.
          */
-        const safePath = (p: string) =>
-            Effect.gen(function* () {
-                const resolved = path.resolve(p);
-                const absCwd = path.resolve(cwd);
-                const normResolved = path.normalize(resolved);
-                const normCwd = path.normalize(absCwd);
-                const lowerResolved = normResolved.toLowerCase();
-                const lowerCwd = normCwd.toLowerCase();
+        const safePath = Effect.fn("safePath")(function* (p: string) {
+            const resolved = path.resolve(p);
+            const absCwd = path.resolve(cwd);
+            const normResolved = path.normalize(resolved);
+            const normCwd = path.normalize(absCwd);
+            const lowerResolved = normResolved.toLowerCase();
+            const lowerCwd = normCwd.toLowerCase();
 
-                if (!lowerResolved.startsWith(lowerCwd)) {
-                    return yield* new FileReadError({
-                        cause: "Access denied",
-                        message: `Access denied: ${resolved} is outside of ${cwd}`,
-                    });
-                }
+            if (!lowerResolved.startsWith(lowerCwd)) {
+                return yield* new FileReadError({
+                    cause: "Access denied",
+                    message: `Access denied: ${resolved} is outside of ${cwd}`,
+                });
+            }
 
-                return resolved;
-            });
+            return resolved;
+        });
 
         /**
          * Returns true if the given path should be ignored.
          */
-        const shouldIgnore = (relativePath: string) => Effect.sync(() => ig.ignores(relativePath));
+        const shouldIgnore = Effect.fn("shouldIgnore")((relativePath: string) =>
+            Effect.sync(() => ig.ignores(relativePath)),
+        );
 
         /**
          * List files in the project directory. Respects .gitignore.
          */
-        const listFiles = (dirPath?: string, recursive = false) =>
-            Effect.gen(function* () {
-                const targetDir = yield* safePath(dirPath ?? ".");
-                const names = yield* fs.readDirectory(targetDir, { recursive });
+        const listFiles = Effect.fn("listFiles")(function* (
+            dirPath?: string,
+            recursive = false,
+            maxResults = Infinity,
+        ) {
+            const targetDir = yield* safePath(dirPath ?? ".");
+            const names = yield* fs.readDirectory(targetDir, { recursive });
 
-                const entries = yield* Effect.all(
-                    names.map((name) =>
-                        Effect.gen(function* () {
-                            const fullPath = path.join(targetDir, name);
-                            const stats = yield* fs.stat(fullPath);
-                            const relPath = path.relative(cwd, fullPath);
-                            const checkPath =
-                                stats.type === "Directory" && !relPath.endsWith("/") ? `${relPath}/` : relPath;
+            const entries = yield* Effect.all(
+                names.map((name) =>
+                    Effect.gen(function* () {
+                        const fullPath = path.join(targetDir, name);
+                        const stats = yield* fs.stat(fullPath);
+                        const relPath = path.relative(cwd, fullPath);
+                        const checkPath =
+                            stats.type === "Directory" && !relPath.endsWith("/") ? `${relPath}/` : relPath;
 
-                            const should = yield* shouldIgnore(checkPath);
-                            if (should) {
-                                return null;
-                            }
-                            return {
-                                name: path.basename(name),
-                                type: stats.type,
-                                path: relPath,
-                            };
-                        }),
-                    ),
-                    { concurrency: "unbounded" },
-                );
+                        const should = yield* shouldIgnore(checkPath);
+                        if (should) {
+                            return null;
+                        }
+                        return {
+                            name: path.basename(name),
+                            type: stats.type,
+                            path: relPath,
+                        };
+                    }),
+                ),
+                { concurrency: "unbounded" },
+            );
 
-                return entries.filter(Boolean);
-            });
+            return entries.filter(Boolean).slice(0, maxResults);
+        });
 
         /**
          * Read a file within the project directory.
          * Creates excerpts of large files by default.
          */
-        const readFile = (
+        const readFile = Effect.fn("readFile")(function* (
             filePath: string,
             options: { disableExcerpts?: boolean; lineRange?: { startLine: number; endLine: number } } = {},
-        ) =>
-            Effect.gen(function* () {
-                const targetPath = yield* safePath(filePath);
-                const stats = yield* fs.stat(targetPath);
-                const content = yield* fs.readFileString(targetPath);
+        ) {
+            const targetPath = yield* safePath(filePath);
+            const stats = yield* fs.stat(targetPath);
+            const content = yield* fs.readFileString(targetPath);
 
-                if (options.lineRange) {
-                    const lines = content.split("\n");
-                    const { startLine, endLine } = options.lineRange;
-                    const startIdx = Math.max(0, startLine - 1);
-                    const endIdx = Math.min(lines.length, endLine);
-                    return lines.slice(startIdx, endIdx).join("\n");
-                }
+            if (options.lineRange) {
+                const lines = content.split("\n");
+                const { startLine, endLine } = options.lineRange;
+                const startIdx = Math.max(0, startLine - 1);
+                const endIdx = Math.min(lines.length, endLine);
+                return lines.slice(startIdx, endIdx).join("\n");
+            }
 
-                if (stats.size >= MAX_FULL_FILE_SIZE_KB && !options.disableExcerpts) {
-                    const beginning = content.slice(0, EXCERPT_SIZE_KB);
-                    const end = content.slice(-EXCERPT_SIZE_KB);
-                    return [beginning, "(...)", end, "Only parts of the file were included for brevity."].join("\n");
-                }
+            if (stats.size >= MAX_FULL_FILE_SIZE_KB && !options.disableExcerpts) {
+                const beginning = content.slice(0, EXCERPT_SIZE_KB);
+                const end = content.slice(-EXCERPT_SIZE_KB);
+                return [beginning, "(...)", end, "Only parts of the file were included for brevity."].join("\n");
+            }
 
-                return content;
-            });
+            return content;
+        });
 
         /**
          * Write a file within the project directory.
          */
-        const writeFile = (filePath: string, content: string, overwrite = false) =>
-            Effect.gen(function* () {
-                const targetPath = yield* safePath(filePath);
+        const writeFile = Effect.fn("writeFile")(function* (filePath: string, content: string, overwrite = false) {
+            const targetPath = yield* safePath(filePath);
 
-                if (!overwrite) {
-                    const exists = yield* fs.exists(targetPath);
-                    if (exists) {
-                        return yield* new FileWriteError({
-                            cause: "File already exists",
-                            message: `File ${filePath} already exists and overwrite is disabled`,
-                        });
-                    }
+            if (!overwrite) {
+                const exists = yield* fs.exists(targetPath);
+                if (exists) {
+                    return yield* new FileWriteError({
+                        cause: "File already exists",
+                        message: `File ${filePath} already exists and overwrite is disabled`,
+                    });
                 }
+            }
 
-                const dir = path.dirname(targetPath);
-                yield* fs.makeDirectory(dir, { recursive: true });
-                yield* fs.writeFileString(targetPath, content);
-                return `Successfully wrote to ${filePath}`;
-            });
+            const dir = path.dirname(targetPath);
+            yield* fs.makeDirectory(dir, { recursive: true });
+            yield* fs.writeFileString(targetPath, content);
+            return `Successfully wrote to ${filePath}`;
+        });
 
         /**
          * Search for files within the project directory using a glob pattern.
          */
-        const searchFiles = (pattern: string, filePattern?: string, caseSensitive = false, maxResults = 50) =>
-            Effect.gen(function* () {
-                const results: Array<{
-                    file: string;
-                    line: number;
-                    content: string;
-                    matches: number;
-                }> = [];
+        const searchFiles = Effect.fn("searchFiles")(function* (
+            pattern: string,
+            filePattern?: string,
+            caseSensitive = false,
+            maxResults = 50,
+        ) {
+            const results: Array<{
+                file: string;
+                line: number;
+                content: string;
+                matches: number;
+            }> = [];
 
-                const regex = new RegExp(pattern, caseSensitive ? "g" : "gi");
+            const regex = new RegExp(pattern, caseSensitive ? "g" : "gi");
 
-                // Glob pattern calculation
-                let globPattern = filePattern ?? "**/*";
-                if (filePattern && !filePattern.includes("/") && !filePattern.startsWith("**")) {
-                    globPattern = `**/${filePattern}`;
-                }
+            // Glob pattern calculation
+            let globPattern = filePattern ?? "**/*";
+            if (filePattern && !filePattern.includes("/") && !filePattern.startsWith("**")) {
+                globPattern = `**/${filePattern}`;
+            }
 
-                const glob = new Glob(globPattern);
-                const filePaths = yield* Effect.tryPromise(() => Array.fromAsync(glob.scan({ cwd, onlyFiles: true })));
+            const glob = new Glob(globPattern);
+            const filePaths = yield* Effect.tryPromise(() => Array.fromAsync(glob.scan({ cwd, onlyFiles: true })));
 
-                for (const filePath of filePaths) {
-                    if (results.length >= maxResults) break;
+            for (const filePath of filePaths) {
+                if (results.length >= maxResults) break;
 
-                    if (ig.ignores(filePath)) continue;
+                if (ig.ignores(filePath)) continue;
 
-                    yield* Effect.catchAll(
-                        Effect.gen(function* () {
-                            const fullPath = path.join(cwd, filePath);
-                            const stats = yield* fs.stat(fullPath);
-                            if (stats.size > MAX_LIST_FILE_SIZE_KB) return;
+                yield* Effect.catchAll(
+                    Effect.gen(function* () {
+                        const fullPath = path.join(cwd, filePath);
+                        const stats = yield* fs.stat(fullPath);
+                        if (stats.size > MAX_LIST_FILE_SIZE_KB) return;
 
-                            const content = yield* fs.readFileString(fullPath);
-                            const lines = content.split("\n");
+                        const content = yield* fs.readFileString(fullPath);
+                        const lines = content.split("\n");
 
-                            for (let i = 0; i < lines.length && results.length < maxResults; i++) {
-                                const line = lines[i];
-                                if (!line) continue;
-                                const matches = line.match(regex);
-                                if (matches && matches.length > 0) {
-                                    results.push({
-                                        file: filePath,
-                                        line: i + 1,
-                                        content: line.trim(),
-                                        matches: matches.length,
-                                    });
-                                }
+                        for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+                            const line = lines[i];
+                            if (!line) continue;
+                            const matches = line.match(regex);
+                            if (matches && matches.length > 0) {
+                                results.push({
+                                    file: filePath,
+                                    line: i + 1,
+                                    content: line.trim(),
+                                    matches: matches.length,
+                                });
                             }
-                        }),
-                        () => Effect.succeed(undefined),
-                    );
-                }
+                        }
+                    }),
+                    () => Effect.succeed(undefined),
+                );
+            }
 
-                return results;
-            });
+            return results;
+        });
 
         return {
             safePath,

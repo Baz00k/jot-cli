@@ -13,6 +13,12 @@ const listFilesSchema = Schema.Struct({
             description: "Whether to list files recursively. Defaults to false.",
         }),
     ),
+    maxResults: Schema.Number.annotations({
+        description: "Maximum number of results to return. Defaults to 25.",
+    }).pipe(
+        Schema.propertySignature,
+        Schema.withConstructorDefault(() => 25),
+    ),
 });
 
 type ListFilesInput = Schema.Schema.Type<typeof listFilesSchema>;
@@ -20,8 +26,8 @@ type ListFilesInput = Schema.Schema.Type<typeof listFilesSchema>;
 export const listFilesTool = tool({
     description: "List files in a directory to understand project structure.",
     inputSchema: jsonSchema<ListFilesInput>(JSONSchema.make(listFilesSchema)),
-    execute: async ({ dirPath, recursive }) => {
-        const execute = ProjectFiles.listFiles(dirPath, recursive).pipe(
+    execute: async ({ dirPath, recursive, maxResults }) => {
+        const execute = ProjectFiles.listFiles(dirPath, recursive, maxResults).pipe(
             Effect.catchAll((error) => Effect.succeed(`Error listing files: ${error.message}`)),
             Effect.provide(ProjectFiles.Default),
         );

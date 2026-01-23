@@ -53,7 +53,10 @@ dist/
         await fs.writeFile(path.join(testDir, ".env"), "API_KEY=secret\n");
 
         // Test list_files respects gitignore
-        const listResult = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolExecutionOptions)) as {
+        const listResult = (await listFilesTool.execute?.(
+            { dirPath: ".", maxResults: 25 },
+            {} as ToolExecutionOptions,
+        )) as {
             name: string;
         }[];
         const listedNames = listResult?.map((e) => e.name);

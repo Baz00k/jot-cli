@@ -27,7 +27,10 @@ describe("Tools Wrappers", () => {
     describe("listFilesTool", () => {
         test("executes successfully", async () => {
             await fs.writeFile(path.join(testDir, "test.txt"), "content");
-            const result = (await listFilesTool.execute?.({ dirPath: "." }, {} as ToolExecutionOptions)) as {
+            const result = (await listFilesTool.execute?.(
+                { dirPath: ".", maxResults: 25 },
+                {} as ToolExecutionOptions,
+            )) as {
                 name: string;
             }[];
             expect(result.some((f) => f.name === "test.txt")).toBe(true);
@@ -126,7 +129,7 @@ describe("Tools Wrappers", () => {
         test("executes successfully", async () => {
             await fs.writeFile(path.join(testDir, "test.txt"), "search-target");
             const result = (await searchFilesTool.execute?.(
-                { pattern: "search-target" },
+                { pattern: "search-target", caseSensitive: false, maxResults: 50 },
                 {} as ToolExecutionOptions,
             )) as {
                 results: unknown[];
