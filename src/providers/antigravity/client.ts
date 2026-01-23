@@ -7,7 +7,7 @@ import type {
 } from "@ai-sdk/provider";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import type { HttpBodyError } from "@effect/platform/HttpBody";
-import { Chunk, Effect, Stream } from "effect";
+import { Chunk, Duration, Effect, Schedule, Stream } from "effect";
 import { ANTIGRAVITY_DEFAULT_PROJECT_ID, ANTIGRAVITY_ENDPOINT_FALLBACKS, ANTIGRAVITY_HEADERS } from "./constants";
 import { AntigravityAuthError, AntigravityError, AntigravityRateLimitError } from "./errors";
 import { mapFinishReason, mapPromptToContents, mapTools, mapUsage, stripMarkdownCodeBlock } from "./mappers";
@@ -167,11 +167,14 @@ const buildRequestPayload = (
 };
 
 /**
- * Parse retry delay from error response
+ * Parse retry delay and status from error response
  */
-const parseRetryDelay = (errorText: string): number | undefined => {
+const parseErrorDetails = (errorText: string): { retryAfter?: number; resourceExhausted: boolean } => {
     try {
         const json = JSON.parse(errorText) as AntigravityErrorResponse;
+        let retryAfter: number | undefined;
+
+        const resourceExhausted = json?.error?.status === "RESOURCE_EXHAUSTED";
 
         // Look for google.rpc.RetryInfo
         const details = json?.error?.details;
@@ -182,16 +185,16 @@ const parseRetryDelay = (errorText: string): number | undefined => {
                     if (typeof delayStr === "string" && delayStr.endsWith("s")) {
                         const seconds = Number.parseFloat(delayStr.slice(0, -1));
                         if (!Number.isNaN(seconds)) {
-                            return Math.ceil(seconds * 1000);
+                            retryAfter = Math.ceil(seconds * 1000);
                         }
                     }
                 }
             }
         }
 
-        return undefined;
+        return { retryAfter, resourceExhausted };
     } catch {
-        return undefined;
+        return { resourceExhausted: false };
     }
 };
 
@@ -242,10 +245,11 @@ const executeRequest = (token: string, payload: ApiRequest, stream: boolean) =>
 
             if (response.status === 429) {
                 const text = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed("Rate limited")));
-                const retryAfter = parseRetryDelay(text);
+                const { retryAfter, resourceExhausted } = parseErrorDetails(text);
                 return yield* new AntigravityRateLimitError({
                     message: `Rate limit exceeded: ${text}`,
                     retryAfter,
+                    resourceExhausted,
                 });
             }
 
@@ -264,7 +268,25 @@ const executeRequest = (token: string, payload: ApiRequest, stream: boolean) =>
             message: `All endpoints failed: ${lastError?.message ?? "Unknown error"}`,
             cause: lastError,
         });
-    });
+    }).pipe(
+        Effect.retry({
+            while: (error) =>
+                error instanceof AntigravityRateLimitError &&
+                (Boolean(error.resourceExhausted) || error.retryAfter !== undefined),
+            schedule: Schedule.identity<unknown>().pipe(
+                Schedule.addDelay((e) => {
+                    if (e instanceof AntigravityRateLimitError) {
+                        if (e.resourceExhausted) {
+                            return Duration.millis(100);
+                        }
+                        return Duration.millis(e.retryAfter ?? 1000);
+                    }
+                    return Duration.zero;
+                }),
+                Schedule.intersect(Schedule.recurs(3)),
+            ),
+        }),
+    );
 
 /**
  * Parse SSE line to extract JSON data
