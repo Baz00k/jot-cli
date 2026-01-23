@@ -12,7 +12,7 @@ import {
     makeRejectChangesTool,
 } from "./review";
 import { searchFilesTool } from "./search-files";
-import { makeVfsEditFileTool, makeVfsReadFileTool, makeVfsWriteFileTool } from "./vfs";
+import { makeVfsDiscardChangesTool, makeVfsEditFileTool, makeVfsReadFileTool, makeVfsWriteFileTool } from "./vfs";
 import { webFetchTool } from "./web-fetch";
 import { webSearchTool } from "./web-search";
 import { writeFileTool } from "./write-file";
@@ -28,6 +28,7 @@ export const makeWriterTools = (runtime: Runtime.Runtime<VFS>) =>
         read_file: makeVfsReadFileTool(runtime),
         write_file: makeVfsWriteFileTool(runtime),
         edit_file: makeVfsEditFileTool(runtime),
+        discard_changes: makeVfsDiscardChangesTool(runtime),
         web_fetch: webFetchTool,
         web_search: webSearchTool,
     }) satisfies ToolSet;

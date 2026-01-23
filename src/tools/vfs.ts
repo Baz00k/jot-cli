@@ -74,3 +74,21 @@ export const makeVfsReadFileTool = (runtime: Runtime.Runtime<VFS>) =>
             );
         },
     });
+
+export const makeVfsDiscardChangesTool = (runtime: Runtime.Runtime<VFS>) =>
+    tool({
+        description:
+            "Discard/Undo staged changes for a specific file in VFS. Use this if you accidentally edited a file.",
+        inputSchema: jsonSchema<{ filePath: string }>(
+            JSONSchema.make(
+                Schema.Struct({
+                    filePath: Schema.String.annotations({ description: "The path to the file to discard changes for" }),
+                }),
+            ),
+        ),
+        execute: async ({ filePath }) => {
+            return Runtime.runPromise(runtime)(
+                VFS.discardChanges(filePath).pipe(Effect.map(() => `Successfully discarded changes for ${filePath}.`)),
+            );
+        },
+    });

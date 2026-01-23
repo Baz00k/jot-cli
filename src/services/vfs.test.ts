@@ -155,4 +155,25 @@ describe("VFS Service", () => {
 
         await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
     });
+
+    test("discardChanges removes staged changes for specific file", async () => {
+        const program = Effect.gen(function* () {
+            const vfs = yield* VFS;
+
+            yield* vfs.writeFile("test.txt", "staged");
+            yield* vfs.writeFile("other.txt", "staged2");
+
+            yield* vfs.discardChanges("test.txt");
+
+            const summary = yield* vfs.getSummary();
+            expect(summary.fileCount).toBe(1);
+            expect(summary.files).toContain("other.txt");
+            expect(summary.files).not.toContain("test.txt");
+
+            const content = yield* vfs.readFile("test.txt");
+            expect(content).toBe("");
+        });
+
+        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)));
+    });
 });

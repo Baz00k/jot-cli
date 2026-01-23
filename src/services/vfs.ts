@@ -208,6 +208,19 @@ export class VFS extends Effect.Service<VFS>()("services/vfs", {
 
             reset: () => Ref.set(stateRef, VFSState.empty),
 
+            discardChanges: (path: string) =>
+                Effect.gen(function* () {
+                    yield* Ref.update(
+                        stateRef,
+                        (state) =>
+                            new VFSState({
+                                ...state,
+                                files: HashMap.remove(state.files, path),
+                            }),
+                    );
+                    return `[VFS] Discarded changes for ${path}`;
+                }),
+
             getSummary: () =>
                 Effect.gen(function* () {
                     const state = yield* Ref.get(stateRef);
@@ -237,6 +250,7 @@ export const TestVFS = new VFS({
     addComment: () => Effect.void,
     approve: () => Effect.void,
     reject: () => Effect.void,
+    discardChanges: () => Effect.succeed(""),
 });
 
 export const TestVFSLayer = Layer.succeed(VFS, TestVFS);
