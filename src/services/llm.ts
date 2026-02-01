@@ -1,7 +1,8 @@
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText, jsonSchema, type LanguageModel, Output, stepCountIs, streamText, type ToolSet } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
-import { Effect, Either, JSONSchema, Layer, Schedule, Schema, Stream } from "effect";
+import { Effect, Either, JSONSchema, Layer, Option, Schedule, Schema, Stream } from "effect";
 import { AIGenerationError } from "@/domain/errors";
 import { getModelSettings } from "@/domain/model-settings";
 import { createAntigravity } from "@/providers/antigravity";
@@ -53,9 +54,23 @@ interface OpenRouterMetadata {
     };
 }
 
+interface ProviderMetadata {
+    readonly providerMetadata?: OpenRouterMetadata;
+}
+
+const calculateCostFromMetadata = (metadata: ProviderMetadata | undefined): number => {
+    const openrouterMetadata = metadata?.providerMetadata as OpenRouterMetadata | undefined;
+    return openrouterMetadata?.openrouter?.usage?.cost ?? 0;
+};
+
+const calculateCostFromSteps = (steps: Array<ProviderMetadata> | undefined): number => {
+    if (!steps || steps.length === 0) return 0;
+    return steps.reduce((total, step) => total + calculateCostFromMetadata(step), 0);
+};
+
 const retryPolicy = Schedule.exponential("1 seconds").pipe(Schedule.intersect(Schedule.recurs(3)));
 
-const withRetry = <A, E extends AIGenerationError>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+const withRetry = Effect.fn("withRetry")(<A, E extends AIGenerationError>(effect: Effect.Effect<A, E>) =>
     effect.pipe(
         Effect.tapError((error) =>
             error.isRetryable
@@ -66,30 +81,65 @@ const withRetry = <A, E extends AIGenerationError>(effect: Effect.Effect<A, E>):
             schedule: retryPolicy,
             while: (error) => error.isRetryable,
         }),
-    );
+    ),
+);
 
 export class LLM extends Effect.Service<LLM>()("services/llm", {
     effect: Effect.gen(function* () {
-        const apiKey = yield* Config.get.pipe(Effect.map((config) => config.openRouterApiKey));
+        const config = yield* Config.get;
+        const apiKey = config.openRouterApiKey;
+        const openaiCompatibleConfig = config.openaiCompatible;
         const openRouter = createOpenRouter({ apiKey, compatibility: "strict" });
         const antigravity = createAntigravity();
+
+        const openaiCompatible = Option.fromNullable(openaiCompatibleConfig).pipe(
+            Option.map((cfg) =>
+                createOpenAICompatible({
+                    name: "openai-compatible",
+                    baseURL: cfg.baseUrl,
+                    apiKey: cfg.apiKey,
+                }),
+            ),
+            Option.getOrUndefined,
+        );
 
         return {
             createModel: (modelConfig: ModelConfig): Effect.Effect<LanguageModel, AIGenerationError> =>
                 Effect.gen(function* () {
                     const specificSettings = getModelSettings(modelConfig.name, modelConfig.role);
+                    const parts = modelConfig.name.split("/");
 
-                    if (
-                        modelConfig.name.startsWith("antigravity-") ||
-                        modelConfig.name.startsWith("google/antigravity-")
-                    ) {
-                        return antigravity(modelConfig.name, {
+                    if (parts.length < 2) {
+                        return yield* new AIGenerationError({
+                            cause: null,
+                            message: `Invalid model name: "${modelConfig.name}". Model names must have at least 2 parts (provider/model)`,
+                            isRetryable: false,
+                        });
+                    }
+
+                    const provider = parts[0];
+                    const modelId = parts.slice(1).join("/");
+
+                    if (provider === "antigravity") {
+                        return antigravity(modelId, {
                             reasoning: {
                                 effort: modelConfig.reasoningEffort ?? "high",
                                 enabled: modelConfig.reasoning ?? true,
                             },
                             ...specificSettings,
                         });
+                    }
+
+                    if (provider === "openaicompatible") {
+                        if (!openaiCompatible) {
+                            return yield* new AIGenerationError({
+                                cause: null,
+                                message:
+                                    "OpenAI-compatible provider not configured. Run 'jot config set-openai-compatible' first.",
+                                isRetryable: false,
+                            });
+                        }
+                        return openaiCompatible(modelId);
                     }
 
                     if (!apiKey) {
@@ -168,14 +218,15 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                         return yield* AIGenerationError.fromUnknown(streamError);
                     }
 
-                    let cost = 0;
-                    const metadata = (yield* Effect.tryPromise(() => response.providerMetadata).pipe(
-                        Effect.orElseSucceed(() => undefined),
-                    )) as OpenRouterMetadata | undefined;
-
-                    if (metadata?.openrouter?.usage) {
-                        cost = metadata.openrouter.usage.cost || 0;
-                    }
+                    const steps = yield* Effect.tryPromise(() => response.steps).pipe(Effect.orElseSucceed(() => []));
+                    const cost =
+                        steps.length > 0
+                            ? calculateCostFromSteps(steps)
+                            : calculateCostFromMetadata({
+                                  providerMetadata: yield* Effect.tryPromise(() => response.providerMetadata).pipe(
+                                      Effect.orElseSucceed(() => undefined),
+                                  ),
+                              });
 
                     return { content: accumulatedText, cost };
                 }).pipe(withRetry),
@@ -187,7 +238,7 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                     const result = yield* Effect.tryPromise({
                         try: async () => {
                             const jsonSchemaObj = JSONSchema.make(params.schema);
-                            const { output: resultOutput, providerMetadata: resultMetadata } = await generateText({
+                            const result = await generateText({
                                 model: params.model,
                                 system: params.system,
                                 prompt: params.prompt,
@@ -213,10 +264,13 @@ export class LLM extends Effect.Service<LLM>()("services/llm", {
                                 }),
                             });
 
-                            const metadata = resultMetadata as OpenRouterMetadata | undefined;
-                            const cost = metadata?.openrouter?.usage?.cost || 0;
+                            const cost =
+                                result.steps && result.steps.length > 0
+                                    ? calculateCostFromSteps(result.steps)
+                                    : calculateCostFromMetadata(result);
+
                             return {
-                                result: resultOutput as TSchema,
+                                result: result.output as TSchema,
                                 cost,
                             };
                         },

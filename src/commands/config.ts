@@ -1,6 +1,6 @@
 import { intro, outro } from "@clack/prompts";
 import { Args, Command, Options } from "@effect/cli";
-import { Console, Effect } from "effect";
+import { Console, Effect, Option } from "effect";
 import { Messages } from "@/domain/messages";
 import { reasoningOptions } from "@/services/agent";
 import { Config } from "@/services/config";
@@ -104,7 +104,74 @@ const setReasoning = Command.make(
         }),
 ).pipe(Command.withDescription("Set reasoning preferences"));
 
+const setOpenAICompatible = Command.make(
+    "set-openai-compatible",
+    {
+        options: Options.all({
+            baseUrl: Options.optional(Options.text("base-url")).pipe(
+                Options.withDescription("Base URL for the OpenAI-compatible API (e.g., http://localhost:11434/v1)"),
+            ),
+            apiKey: Options.optional(Options.text("api-key")).pipe(
+                Options.withDescription("API key for the OpenAI-compatible provider (optional)"),
+            ),
+        }),
+    },
+    ({ options }) =>
+        Effect.gen(function* () {
+            const config = yield* Config;
+            const currentConfig = yield* config.get;
+            intro(`🔌 Jot CLI - Configure OpenAI-Compatible Provider`);
+
+            const existing = currentConfig.openaiCompatible;
+            const newBaseUrl = Option.getOrUndefined(options.baseUrl);
+            const newApiKey = Option.getOrUndefined(options.apiKey);
+
+            if (!existing && !newBaseUrl) {
+                return yield* Effect.fail(new Error("No existing configuration found. Please provide --base-url."));
+            }
+
+            const baseUrl = newBaseUrl !== undefined ? newBaseUrl : existing?.baseUrl;
+
+            if (!baseUrl) {
+                return yield* Effect.fail(
+                    new Error("Base URL is required but not provided or found in existing config."),
+                );
+            }
+
+            yield* config.update({
+                openaiCompatible: {
+                    baseUrl,
+                    apiKey: newApiKey !== undefined ? newApiKey : existing?.apiKey,
+                },
+            });
+
+            outro(`OpenAI-compatible provider configured with base URL: ${baseUrl}`);
+        }),
+).pipe(Command.withDescription("Configure an OpenAI-compatible provider (e.g., local LLM, proxy)"));
+
+const clearOpenAICompatible = Command.make("clear-openai-compatible", {}, () =>
+    Effect.gen(function* () {
+        const config = yield* Config;
+        intro(`🗑️  Jot CLI - Clear OpenAI-Compatible Provider`);
+
+        yield* config.update({
+            openaiCompatible: undefined,
+        });
+
+        outro("OpenAI-compatible provider configuration cleared. Using OpenRouter as default.");
+    }),
+).pipe(Command.withDescription("Remove OpenAI-compatible provider configuration"));
+
 export const configCommand = Command.make("config").pipe(
     Command.withDescription("Manage jot-cli configuration"),
-    Command.withSubcommands([setKey, showPath, status, setWriter, setReviewer, setReasoning]),
+    Command.withSubcommands([
+        setKey,
+        showPath,
+        status,
+        setWriter,
+        setReviewer,
+        setReasoning,
+        setOpenAICompatible,
+        clearOpenAICompatible,
+    ]),
 );

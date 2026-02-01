@@ -69,28 +69,28 @@ You can configure Jot CLI to use Antigravity models for drafting and reviewing:
 
 ```bash
 # Set the writer model
-jot config set-writer google/antigravity-gemini-3-flash
+jot config set-writer antigravity/gemini-3-flash
 
 # Set the reviewer model
-jot config set-reviewer google/antigravity-claude-sonnet-4-5
+jot config set-reviewer antigravity/claude-sonnet-4-5
 ```
 
 ### Model IDs
 
-When using the Antigravity provider, the model ID should include the `antigravity-` prefix. You can optionally include the `google/` prefix as well. The CLI will automatically strip these prefixes when making API requests.
+When using the Antigravity provider, use the format `antigravity/<model-name>`. The provider prefix determines which API to use.
 
-- **Example**: `antigravity-gemini-3-flash` or `google/antigravity-gemini-3-flash` both will use `gemini-3-flash` using Antigravity API.
+- **Example**: `antigravity/gemini-3-flash` will use the Antigravity API
 
 ### Available Antigravity Models
 
-| Model                                           | Description                       |
-| ----------------------------------------------- | --------------------------------- |
-| `google/antigravity-gemini-3-flash`             | Gemini 3 Flash (minimal thinking) |
-| `google/antigravity-gemini-3-pro-low`           | Gemini 3 Pro with low thinking    |
-| `google/antigravity-gemini-3-pro-high`          | Gemini 3 Pro with high thinking   |
-| `google/antigravity-claude-sonnet-4-5`          | Claude Sonnet 4.5 (no thinking)   |
-| `google/antigravity-claude-sonnet-4-5-thinking` | Sonnet with thinking              |
-| `google/antigravity-claude-opus-4-5-thinking`   | Opus with thinking                |
+| Model                                    | Description                       |
+| ---------------------------------------- | --------------------------------- |
+| `antigravity/gemini-3-flash`             | Gemini 3 Flash (minimal thinking) |
+| `antigravity/gemini-3-pro-low`           | Gemini 3 Pro with low thinking    |
+| `antigravity/gemini-3-pro-high`          | Gemini 3 Pro with high thinking   |
+| `antigravity/claude-sonnet-4-5`          | Claude Sonnet 4.5 (no thinking)   |
+| `antigravity/claude-sonnet-4-5-thinking` | Sonnet with thinking              |
+| `antigravity/claude-opus-4-5-thinking`   | Opus with thinking                |
 
 Antigravity provides limited quota for each model.
 If the quota is exceeded, the model will return an error.
@@ -108,9 +108,9 @@ You can check the quota usage by running `jot antigravity quota`.
 
 This is a list of models that have been tested and found to work well with Jot CLI:
 
-- google/gemini-3-pro-preview / google/antigravity-gemini-3-pro-high
-- anthropic/claude-opus-4.5 / google/antigravity-claude-opus-4.5-thinking
-- google/gemini-3-flash-preview / google/antigravity-gemini-3-flash
+- google/gemini-3-pro-preview / antigravity/gemini-3-pro-high
+- anthropic/claude-opus-4.5 / antigravity/claude-opus-4.5-thinking
+- google/gemini-3-flash-preview / antigravity/gemini-3-flash
 - openai/gpt-5.2-pro
 - x-ai/grok-4.1-fast
 - moonshotai/kimi-k2-thinking

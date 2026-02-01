@@ -34,6 +34,12 @@ export class UserConfig extends Schema.Class<UserConfig>("UserConfig")({
             projectId: Schema.optional(Schema.String),
         }),
     ),
+    openaiCompatible: Schema.optional(
+        Schema.Struct({
+            baseUrl: Schema.String,
+            apiKey: Schema.optional(Schema.String),
+        }),
+    ),
 }) {}
 
 export class Config extends Effect.Service<Config>()("services/config", {
