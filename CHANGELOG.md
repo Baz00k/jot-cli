@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/Baz00k/jot-cli/compare/v0.8.3...v0.9.0) (2026-02-01)
+
+
+### Features
+
+* add support for openai compatible providers ([1a0c5da](https://github.com/Baz00k/jot-cli/commit/1a0c5da4595a5c626bd02d5aa7be6034a74e65d6))
+
+
+### Bug Fixes
+
+* add capacity exhausted errors retrying ([b671425](https://github.com/Baz00k/jot-cli/commit/b671425d6a70b98ac511916126e82b51c01b63aa))
+
 ## [0.8.3](https://github.com/Baz00k/jot-cli/compare/v0.8.2...v0.8.3) (2026-01-23)
 
 
