@@ -1,6 +1,6 @@
 {
     "name": "jot-cli",
-    "version": "0.8.3",
+    "version": "0.9.0",
     "module": "src/index.ts",
     "bin": {
         "jot": "src/index.ts"
