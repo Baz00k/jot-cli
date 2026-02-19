@@ -22,6 +22,7 @@ export const Keymap = {
         Exit: { name: "c", ctrl: true, label: "Ctrl+C" },
         Help: { name: "?", label: "?" },
         Settings: { name: "f2", label: "F2" },
+        Sessions: { name: "f3", label: "F3" },
         Retry: { name: "r", label: "R" },
         Submit: { name: "return", label: "Enter" },
         Cancel: { name: "escape", label: "Esc" },

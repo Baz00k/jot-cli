@@ -4,6 +4,7 @@ import { BunRuntime } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { antigravityCommand } from "@/commands/antigravity";
 import { configCommand } from "@/commands/config";
+import { resumeCommand } from "@/commands/resume";
 import { writeCommand } from "@/commands/write";
 import { TUIStartupError } from "@/domain/errors";
 import { UniversalLayer } from "@/runtime";
@@ -16,7 +17,7 @@ const command = Command.make("jot", {}, () =>
         catch: (error) => new TUIStartupError({ cause: error, message: `Failed to start TUI: ${error}` }),
     }),
 ).pipe(
-    Command.withSubcommands([writeCommand, configCommand, antigravityCommand]),
+    Command.withSubcommands([writeCommand, resumeCommand, configCommand, antigravityCommand]),
     Command.withDescription("AI Research Assistant CLI"),
 );
 

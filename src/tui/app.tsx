@@ -2,15 +2,17 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
 import { DialogProvider, useDialog, useDialogState } from "@opentui-ui/dialog/react";
 import { Effect } from "effect";
-import { StrictMode, useState } from "react";
+import { StrictMode, useCallback, useState } from "react";
 import { copyToClipboard } from "@/services/clipboard";
+import { Session, type SessionData } from "@/services/session";
 import { ErrorBoundary } from "@/tui/components/ErrorBoundary";
+import { SessionPickerModal } from "@/tui/components/SessionPickerModal";
 import { SettingsModal } from "@/tui/components/SettingsModal";
 import { Sidebar } from "@/tui/components/Sidebar";
 import { StatusBar } from "@/tui/components/StatusBar";
 import { AgentProvider, useAgentContext } from "@/tui/context/AgentContext";
 import { ConfigProvider } from "@/tui/context/ConfigContext";
-import { EffectProvider } from "@/tui/context/EffectContext";
+import { EffectProvider, useEffectRuntime } from "@/tui/context/EffectContext";
 import { RendererProvider } from "@/tui/context/RendererContext";
 import { ThemeProvider } from "@/tui/context/ThemeContext";
 import { Keymap } from "@/tui/keyboard/keymap";
@@ -21,10 +23,36 @@ import { areKeyBindingsEqual } from "./keyboard/utils";
 function AgentWorkflow() {
     const dialog = useDialog();
     const renderer = useRenderer();
+    const runtime = useEffectRuntime();
     const { state, start, submitAction, cancel } = useAgentContext();
     const isDialogOpen = useDialogState((s) => s.isOpen);
 
     const [activeFocus, setActiveFocus] = useState<"input" | "timeline">("input");
+
+    const handleSessionSelect = useCallback(
+        (session: SessionData) => {
+            start({ sessionId: session.id });
+        },
+        [start],
+    );
+
+    const openSessionPicker = useCallback(() => {
+        void runtime
+            .runPromise(
+                Effect.gen(function* () {
+                    const sessionService = yield* Session;
+                    return yield* sessionService.list();
+                }),
+            )
+            .then((sessions) => {
+                dialog.prompt({
+                    content: (ctx) => (
+                        <SessionPickerModal {...ctx} sessions={sessions} onSelect={handleSessionSelect} />
+                    ),
+                    size: "large",
+                });
+            });
+    }, [runtime, dialog, handleSessionSelect]);
 
     useKeyboard((keyEvent) => {
         if (isDialogOpen) return;
@@ -34,6 +62,11 @@ function AgentWorkflow() {
                 content: (ctx) => <SettingsModal {...ctx} />,
                 size: "large",
             });
+            return;
+        }
+
+        if (areKeyBindingsEqual(keyEvent, Keymap.Global.Sessions)) {
+            openSessionPicker();
             return;
         }
 

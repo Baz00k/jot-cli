@@ -39,7 +39,8 @@ export const StatusBar = ({ isRunning, disabled = false }: StatusBarProps) => {
             }}
         >
             <text>
-                {Keymap.Global.Cancel.label}: Exit | {Keymap.Global.Settings.label}: Settings
+                {Keymap.Global.Cancel.label}: Exit | {Keymap.Global.Settings.label}: Settings |{" "}
+                {Keymap.Global.Sessions.label}: Sessions
                 {state.error ? ` | ${Keymap.Global.Retry.label}: Retry` : ""}
             </text>
             <text>
